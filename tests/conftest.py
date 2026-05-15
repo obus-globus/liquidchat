@@ -154,7 +154,27 @@ allow_anonymous = true
         except subprocess.TimeoutExpired:
             info.proc.kill()
             info.proc.wait()
-        shutil.rmtree(workdir, ignore_errors=True)
+        # Keep the workdir + log on disk for post-mortem; gc'd by /tmp later.
+        if os.environ.get("LIQUIDCHAT_KEEP_TESTDIR") != "1":
+            shutil.rmtree(workdir, ignore_errors=True)
+        else:
+            print(f"\n[conftest] kept test workdir: {workdir}")
+
+
+@pytest.fixture(autouse=True)
+def _ensure_server_alive(axochat_server: AxochatServer) -> None:
+    """Restart axochat if a previous test crashed it (server is fragile)."""
+    if axochat_server.proc.poll() is not None:
+        axochat_server.restart()
+        return
+    # Process still alive — verify port still accepts connections.
+    try:
+        with socket.create_connection(
+            (axochat_server.host, axochat_server.port), timeout=0.5
+        ):
+            pass
+    except OSError:
+        axochat_server.restart()
 
 
 @pytest.fixture

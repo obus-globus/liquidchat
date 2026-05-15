@@ -9,47 +9,44 @@ import pytest
 
 from liquidchat import (
     AuthorInfo,
+    Client,
     Handlers,
-    JWTValidationClient,
-    MinimalClient,
     MissingTokenError,
-    ModeratorClient,
     PersistentClient,
-    PersistentModeratorClient,
     ReconnectPolicy,
 )
 
 pytestmark = pytest.mark.asyncio
 
 
-# ---------- JWTValidationClient ----------
+# ---------- Client ----------
 
 
 async def test_validate_returns_true_for_valid_token(axochat_server, jwt_user_a):
-    ok = await JWTValidationClient(url=axochat_server.url).validate(jwt_user_a)
+    ok = await Client(url=axochat_server.url).validate(jwt_user_a)
     assert ok is True
 
 
 async def test_validate_returns_false_for_garbage_token(axochat_server):
-    ok = await JWTValidationClient(url=axochat_server.url).validate("not-a-jwt")
+    ok = await Client(url=axochat_server.url).validate("not-a-jwt")
     assert ok is False
 
 
 async def test_validate_returns_false_for_empty_token(axochat_server):
-    ok = await JWTValidationClient(url=axochat_server.url).validate("")
+    ok = await Client(url=axochat_server.url).validate("")
     assert ok is False
 
 
 async def test_validate_returns_false_when_server_unreachable():
-    ok = await JWTValidationClient(url="ws://127.0.0.1:1/ws").validate("x")
+    ok = await Client(url="ws://127.0.0.1:1/ws").validate("x")
     assert ok is False
 
 
-# ---------- MinimalClient ----------
+# ---------- Client ----------
 
 
 async def test_minimal_send_message_round_trip(axochat_server, jwt_user_a, jwt_user_b):
-    """Send via MinimalClient, observe broadcast via PersistentClient as a second user."""
+    """Send via Client, observe broadcast via PersistentClient as a second user."""
     received: list[tuple[str, str]] = []
     got = asyncio.Event()
 
@@ -67,7 +64,7 @@ async def test_minimal_send_message_round_trip(axochat_server, jwt_user_a, jwt_u
     try:
         await listener.wait_until_logged_in(timeout=5.0)
 
-        client = MinimalClient(url=axochat_server.url)
+        client = Client(url=axochat_server.url)
         client.set_jwt_token(jwt_user_a)
         await client.send_message("hello there")
 
@@ -79,16 +76,16 @@ async def test_minimal_send_message_round_trip(axochat_server, jwt_user_a, jwt_u
 
 
 async def test_minimal_send_message_missing_token_raises(axochat_server):
-    client = MinimalClient(url=axochat_server.url)
+    client = Client(url=axochat_server.url)
     with pytest.raises(MissingTokenError):
         await client.send_message("nope")
 
 
-# ---------- ModeratorClient (one-shot) ----------
+# ---------- Client (one-shot) ----------
 
 
 async def test_moderator_ban_without_perms_returns_false(axochat_server, jwt_user_a):
-    mod = ModeratorClient(url=axochat_server.url)
+    mod = Client(url=axochat_server.url)
     mod.set_jwt_token(jwt_user_a)
     from tests.conftest import TARGET_UUID
 
@@ -96,7 +93,7 @@ async def test_moderator_ban_without_perms_returns_false(axochat_server, jwt_use
 
 
 async def test_moderator_ban_with_perms_succeeds(axochat_server, jwt_mod):
-    mod = ModeratorClient(url=axochat_server.url)
+    mod = Client(url=axochat_server.url)
     mod.set_jwt_token(jwt_mod)
     from tests.conftest import TARGET_UUID
 
@@ -109,7 +106,7 @@ async def test_moderator_ban_with_perms_succeeds(axochat_server, jwt_mod):
 
 
 async def test_moderator_batch_ban_progress_callback(axochat_server, jwt_mod):
-    mod = ModeratorClient(url=axochat_server.url)
+    mod = Client(url=axochat_server.url)
     mod.set_jwt_token(jwt_mod)
     mod.PROGRESS_UPDATE_FREQUENCY = 2  # type: ignore[misc]
 
@@ -136,7 +133,7 @@ async def test_moderator_batch_ban_progress_callback(axochat_server, jwt_mod):
 
 
 async def test_moderator_missing_token_raises(axochat_server):
-    mod = ModeratorClient(url=axochat_server.url)
+    mod = Client(url=axochat_server.url)
     with pytest.raises(MissingTokenError):
         await mod.ban_user("11111111-1111-1111-1111-111111111111")
     with pytest.raises(MissingTokenError):
@@ -220,7 +217,7 @@ async def test_persistent_client_username_lookup(axochat_server, jwt_user_a, jwt
     try:
         await listener.wait_until_logged_in(timeout=5.0)
 
-        sender = MinimalClient(url=axochat_server.url)
+        sender = Client(url=axochat_server.url)
         sender.set_jwt_token(jwt_user_a)
         await sender.send_message("hi from a")
 
@@ -297,13 +294,13 @@ async def test_persistent_client_buffers_sends_before_connect(axochat_server, jw
     assert "buffered before start" in seen
 
 
-# ---------- PersistentModeratorClient ----------
+# ---------- PersistentClient ----------
 
 
 async def test_persistent_moderator_ban_unban(axochat_server, jwt_mod):
     from tests.conftest import TARGET_UUID
 
-    mod = PersistentModeratorClient(url=axochat_server.url)
+    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
     mod.set_jwt_token(jwt_mod)
     await mod.start()
     try:
@@ -322,7 +319,7 @@ async def test_persistent_moderator_ban_unban(axochat_server, jwt_mod):
 async def test_persistent_moderator_rejects_when_no_perm(axochat_server, jwt_user_a):
     from tests.conftest import TARGET_UUID
 
-    mod = PersistentModeratorClient(url=axochat_server.url)
+    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
     mod.set_jwt_token(jwt_user_a)
     await mod.start()
     try:
@@ -335,7 +332,7 @@ async def test_persistent_moderator_rejects_when_no_perm(axochat_server, jwt_use
 
 async def test_persistent_moderator_drops_when_disconnected(axochat_server):
     """If never started, an action immediately returns False."""
-    mod = PersistentModeratorClient(url=axochat_server.url)
+    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
     # Token set but not started.
     mod.set_jwt_token("does-not-matter")
     assert mod.connected is False
@@ -343,7 +340,7 @@ async def test_persistent_moderator_drops_when_disconnected(axochat_server):
 
 
 async def test_persistent_moderator_start_without_token_raises(axochat_server):
-    mod = PersistentModeratorClient(url=axochat_server.url)
+    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
     with pytest.raises(MissingTokenError):
         await mod.start()
 
@@ -400,12 +397,12 @@ async def test_persistent_client_reconnects_after_server_restart(axochat_server,
 
 async def test_validate_strict_returns_false_for_invalid_token(axochat_server):
     """Bad credentials → False, no exception."""
-    ok = await JWTValidationClient(url=axochat_server.url).validate_strict("garbage")
+    ok = await Client(url=axochat_server.url).validate_strict("garbage")
     assert ok is False
 
 
 async def test_validate_strict_returns_true_for_valid_token(axochat_server, jwt_user_a):
-    ok = await JWTValidationClient(url=axochat_server.url).validate_strict(jwt_user_a)
+    ok = await Client(url=axochat_server.url).validate_strict(jwt_user_a)
     assert ok is True
 
 
@@ -414,7 +411,7 @@ async def test_validate_strict_raises_when_unreachable():
     import websockets.exceptions
 
     with pytest.raises((OSError, websockets.exceptions.WebSocketException)):
-        await JWTValidationClient(url="ws://127.0.0.1:1/ws").validate_strict("x")
+        await Client(url="ws://127.0.0.1:1/ws").validate_strict("x")
 
 
 # ---------- cancellation safety ----------
@@ -433,8 +430,8 @@ async def test_persistent_client_task_cancel_cleans_up(axochat_server, jwt_user_
 
 
 async def test_minimal_client_send_cancel_safe(axochat_server, jwt_user_a):
-    """Cancelling MinimalClient.send_message mid-flight must not leak the websocket."""
-    client = MinimalClient(url=axochat_server.url)
+    """Cancelling Client.send_message mid-flight must not leak the websocket."""
+    client = Client(url=axochat_server.url)
     client.set_jwt_token(jwt_user_a)
     task = asyncio.create_task(client.send_message("racing"))
     # Yield once so the task starts the handshake, then cancel.
