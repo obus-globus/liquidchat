@@ -7,10 +7,6 @@ class LiquidChatError(Exception):
     """Base class for all liquidchat errors."""
 
 
-class NotAuthenticatedError(LiquidChatError):
-    """Raised when an action requires an authenticated session but the client has none."""
-
-
 class MissingTokenError(LiquidChatError):
     """Raised when a JWT token is required but has not been configured."""
 

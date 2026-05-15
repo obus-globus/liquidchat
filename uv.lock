@@ -126,7 +126,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "websockets", specifier = ">=16.0" }]
+requires-dist = [{ name = "websockets", specifier = ">=16.0,<17.0" }]
 
 [package.metadata.requires-dev]
 dev = [

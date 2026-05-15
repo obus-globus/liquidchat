@@ -63,12 +63,13 @@ class AxochatServer:
             "CONFIG_PATH": str(self.config_path),
             "RUST_LOG": "warn",
         }
+        log = (self.workdir / "axochat.log").open("a")
         self.proc = subprocess.Popen(
             [str(AXOCHAT_BIN), "start"],
             cwd=self.workdir,
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
         )
         _wait_for_port(self.host, self.port)
 
@@ -108,12 +109,14 @@ allow_anonymous = true
 """
     )
     env = {**os.environ, "CONFIG_PATH": str(cfg), "RUST_LOG": "warn"}
+    log_path = workdir / "axochat.log"
+    log = log_path.open("w")
     proc = subprocess.Popen(
         [str(AXOCHAT_BIN), "start"],
         cwd=workdir,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log,
+        stderr=subprocess.STDOUT,
     )
     try:
         _wait_for_port("127.0.0.1", port)

@@ -20,12 +20,14 @@ Example::
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from .client import JWTValidationClient, MinimalClient, ModeratorClient, ProgressCallback
 from .exceptions import (
     LiquidChatError,
     LoginFailedError,
     MissingTokenError,
-    NotAuthenticatedError,
     ProtocolError,
 )
 from .models import (
@@ -54,7 +56,10 @@ from .persistent import (
 )
 from .protocol import DEFAULT_WS_URL, build_ssl_context, decode, encode
 
-__version__ = "0.1.0"
+try:
+    __version__ = _pkg_version("liquidchat")
+except PackageNotFoundError:  # editable install before any package metadata is built
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "DEFAULT_WS_URL",
@@ -75,7 +80,6 @@ __all__ = [
     "ModeratorClient",
     "MojangInfo",
     "NewJWT",
-    "NotAuthenticatedError",
     "PersistentClient",
     "PersistentModeratorClient",
     "PrivateMessageHandler",

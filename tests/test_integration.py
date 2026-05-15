@@ -65,8 +65,7 @@ async def test_minimal_send_message_round_trip(axochat_server, jwt_user_a, jwt_u
     listener.set_jwt_token(jwt_user_b)
     await listener.start()
     try:
-        # Give the listener a moment to log in
-        await asyncio.sleep(0.3)
+        await listener.wait_until_logged_in(timeout=5.0)
 
         client = MinimalClient(url=axochat_server.url)
         client.set_jwt_token(jwt_user_a)
@@ -163,7 +162,7 @@ async def test_persistent_client_lifecycle_callbacks(axochat_server, jwt_user_a)
     )
     client.set_jwt_token(jwt_user_a)
     await client.start()
-    await asyncio.sleep(0.5)
+    await client.wait_until_logged_in(timeout=5.0)
     assert client.connected
     await client.stop()
     assert not client.connected
@@ -193,7 +192,7 @@ async def test_persistent_client_send_and_receive_own_message(axochat_server, jw
     client.set_jwt_token(jwt_user_a)
     await client.start()
     try:
-        await asyncio.sleep(0.3)  # ensure logged in
+        await client.wait_until_logged_in(timeout=5.0)
         await client.send_chat("echo me")
         await asyncio.wait_for(got.wait(), timeout=3.0)
     finally:
@@ -219,7 +218,7 @@ async def test_persistent_client_username_lookup(axochat_server, jwt_user_a, jwt
     listener.set_jwt_token(jwt_user_b)
     await listener.start()
     try:
-        await asyncio.sleep(0.3)
+        await listener.wait_until_logged_in(timeout=5.0)
 
         sender = MinimalClient(url=axochat_server.url)
         sender.set_jwt_token(jwt_user_a)
@@ -251,7 +250,7 @@ async def test_persistent_client_request_user_count(axochat_server, jwt_mod):
     client.set_jwt_token(jwt_mod)
     await client.start()
     try:
-        await asyncio.sleep(0.3)
+        await client.wait_until_logged_in(timeout=5.0)
         await client.request_user_count()
         await asyncio.wait_for(got.wait(), timeout=3.0)
     finally:
@@ -267,25 +266,35 @@ async def test_persistent_client_stop_is_idempotent(axochat_server, jwt_user_a):
     client = PersistentClient(url=axochat_server.url)
     client.set_jwt_token(jwt_user_a)
     await client.start()
-    await asyncio.sleep(0.2)
+    await client.wait_until_logged_in(timeout=5.0)
     await client.stop()
     # Calling stop again must not raise.
     await client.stop()
     assert not client.connected
 
 
-async def test_persistent_client_send_drops_when_not_connected(axochat_server, jwt_user_a):
-    """Queued sends before connecting are buffered, not raised."""
-    client = PersistentClient(url=axochat_server.url)
+async def test_persistent_client_buffers_sends_before_connect(axochat_server, jwt_user_a):
+    """Sends queued before ``start()`` should be flushed once connected, not raise."""
+    received = asyncio.Event()
+    seen: list[str] = []
+
+    async def on_message(_author, content: str) -> None:
+        seen.append(content)
+        received.set()
+
+    client = PersistentClient(
+        url=axochat_server.url,
+        handlers=Handlers(on_message=on_message),
+    )
     client.set_jwt_token(jwt_user_a)
+    # Queue *before* the loop is running.
     await client.send_chat("buffered before start")
-    # No exception. The message will be flushed on connect.
     await client.start()
     try:
-        await asyncio.sleep(0.5)
-        assert client.connected
+        await asyncio.wait_for(received.wait(), timeout=5.0)
     finally:
         await client.stop()
+    assert "buffered before start" in seen
 
 
 # ---------- PersistentModeratorClient ----------
@@ -298,7 +307,7 @@ async def test_persistent_moderator_ban_unban(axochat_server, jwt_mod):
     mod.set_jwt_token(jwt_mod)
     await mod.start()
     try:
-        await asyncio.sleep(0.3)
+        await mod.wait_until_logged_in(timeout=5.0)
         assert mod.connected
         # ensure clean state
         await mod.unban_user(TARGET_UUID)
@@ -317,7 +326,7 @@ async def test_persistent_moderator_rejects_when_no_perm(axochat_server, jwt_use
     mod.set_jwt_token(jwt_user_a)
     await mod.start()
     try:
-        await asyncio.sleep(0.3)
+        await mod.wait_until_logged_in(timeout=5.0)
         assert mod.connected
         assert await mod.ban_user(TARGET_UUID) is False
     finally:
@@ -384,3 +393,108 @@ async def test_persistent_client_reconnects_after_server_restart(axochat_server,
         assert "reconnect" in connected_events
     finally:
         await client.stop()
+
+
+# ---------- validate_strict ----------
+
+
+async def test_validate_strict_returns_false_for_invalid_token(axochat_server):
+    """Bad credentials → False, no exception."""
+    ok = await JWTValidationClient(url=axochat_server.url).validate_strict("garbage")
+    assert ok is False
+
+
+async def test_validate_strict_returns_true_for_valid_token(axochat_server, jwt_user_a):
+    ok = await JWTValidationClient(url=axochat_server.url).validate_strict(jwt_user_a)
+    assert ok is True
+
+
+async def test_validate_strict_raises_when_unreachable():
+    """Network errors propagate from validate_strict."""
+    import websockets.exceptions
+
+    with pytest.raises((OSError, websockets.exceptions.WebSocketException)):
+        await JWTValidationClient(url="ws://127.0.0.1:1/ws").validate_strict("x")
+
+
+# ---------- cancellation safety ----------
+
+
+async def test_persistent_client_task_cancel_cleans_up(axochat_server, jwt_user_a):
+    """Cancelling the run task externally should not leak resources."""
+    client = PersistentClient(url=axochat_server.url)
+    client.set_jwt_token(jwt_user_a)
+    task = await client.start()
+    await client.wait_until_logged_in(timeout=5.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not client.connected
+
+
+async def test_minimal_client_send_cancel_safe(axochat_server, jwt_user_a):
+    """Cancelling MinimalClient.send_message mid-flight must not leak the websocket."""
+    client = MinimalClient(url=axochat_server.url)
+    client.set_jwt_token(jwt_user_a)
+    task = asyncio.create_task(client.send_message("racing"))
+    # Yield once so the task starts the handshake, then cancel.
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+# ---------- PrivateMessage ----------
+
+
+async def test_persistent_client_receives_private_message(axochat_server, jwt_user_a, jwt_user_b):
+    """user_a sends a PrivateMessage to user_b; user_b's handler fires."""
+    got = asyncio.Event()
+    captured: list[tuple[AuthorInfo, str]] = []
+
+    async def on_private(author: AuthorInfo, content: str) -> None:
+        captured.append((author, content))
+        got.set()
+
+    receiver = PersistentClient(
+        url=axochat_server.url,
+        allow_messages=True,
+        handlers=Handlers(on_private_message=on_private),
+    )
+    receiver.set_jwt_token(jwt_user_b)
+    await receiver.start()
+
+    sender = PersistentClient(url=axochat_server.url)
+    sender.set_jwt_token(jwt_user_a)
+    await sender.start()
+
+    try:
+        await receiver.wait_until_logged_in(timeout=5.0)
+        await sender.wait_until_logged_in(timeout=5.0)
+        # Server keys receiver by username.
+        await sender.send("PrivateMessage", {"receiver": "user_b", "content": "psst"})
+        await asyncio.wait_for(got.wait(), timeout=5.0)
+    finally:
+        await sender.stop()
+        await receiver.stop()
+
+    assert captured
+    author, content = captured[0]
+    assert author.name == "user_a"
+    assert content == "psst"
+
+
+# ---------- Error.message dict form ----------
+
+
+async def test_error_message_dict_shape_does_not_crash():
+    """The protocol parser accepts Error messages whose `message` is a dict
+    (Rust enum tuple variant) without crashing."""
+    from liquidchat import parse_message
+
+    msg = parse_message({"m": "Error", "c": {"message": {"InvalidCharacter": "@"}}})
+    assert msg.m == "Error"
+    from liquidchat import Error
+
+    assert isinstance(msg.c, Error)
+    assert msg.c.message == {"InvalidCharacter": "@"}
