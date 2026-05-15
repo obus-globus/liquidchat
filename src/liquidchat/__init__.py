@@ -1,18 +1,22 @@
 """LiquidChat client library.
 
 A modern, typed websocket client for the LiquidChat protocol used by
-``chat.liquidbounce.net``. Includes both one-shot helpers (send a message,
-validate a JWT, ban a user) and long-running clients with automatic
-reconnection.
+``chat.liquidbounce.net``. Two clients cover every operation:
+
+- :class:`Client` — one-shot. Opens a fresh websocket, performs an
+  operation (validate / send_message / ban / unban / batch ban) and
+  closes. For low-frequency work or CLI tools.
+- :class:`PersistentClient` — long-lived. Auto-reconnects, delivers
+  inbound messages to :class:`Handlers` callbacks, sends chat, and
+  performs ban / unban actions on the same connection.
 
 Example::
 
     import asyncio
-    from liquidchat import MinimalClient
+    from liquidchat import Client
 
     async def main() -> None:
-        client = MinimalClient()
-        client.set_jwt_token("...")
+        client = Client(token="...")
         await client.send_message("hello world")
 
     asyncio.run(main())
@@ -23,7 +27,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-from .client import JWTValidationClient, MinimalClient, ModeratorClient, ProgressCallback
+from .client import Client, ProgressCallback
 from .exceptions import (
     LiquidChatError,
     LoginFailedError,
@@ -49,7 +53,6 @@ from .persistent import (
     LifecycleHandler,
     MessageHandler,
     PersistentClient,
-    PersistentModeratorClient,
     PrivateMessageHandler,
     ReconnectPolicy,
     UserCountHandler,
@@ -64,10 +67,10 @@ except PackageNotFoundError:  # editable install before any package metadata is 
 __all__ = [
     "DEFAULT_WS_URL",
     "AuthorInfo",
+    "Client",
     "Error",
     "ErrorHandler",
     "Handlers",
-    "JWTValidationClient",
     "LifecycleHandler",
     "LiquidChatError",
     "LiquidChatMessage",
@@ -75,13 +78,10 @@ __all__ = [
     "MessageBody",
     "MessageContent",
     "MessageHandler",
-    "MinimalClient",
     "MissingTokenError",
-    "ModeratorClient",
     "MojangInfo",
     "NewJWT",
     "PersistentClient",
-    "PersistentModeratorClient",
     "PrivateMessageHandler",
     "ProgressCallback",
     "ProtocolError",

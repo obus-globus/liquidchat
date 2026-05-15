@@ -1,4 +1,4 @@
-"""Long-running, auto-reconnecting LiquidChat clients."""
+"""Long-running, auto-reconnecting LiquidChat client."""
 
 from __future__ import annotations
 
@@ -63,17 +63,33 @@ class ReconnectPolicy:
         return base + offset
 
 
+@dataclass
+class _PendingAction:
+    expected: Literal["Ban", "Unban"]
+    future: asyncio.Future[bool]
+
+
 class PersistentClient:
     """A long-lived LiquidChat client with automatic reconnection.
 
-    Replaces ``LiquidChatClientReworked`` from the original code. Not a
-    singleton — instantiate one per logical chat connection.
+    Handles every operation the server understands over a single
+    long-lived connection: receives chat / private messages / user-count
+    updates (delivered to :class:`Handlers` callbacks), sends chat
+    messages, and performs ban / unban moderation actions.
+
+    Moderation calls (:meth:`ban_user`, :meth:`unban_user`) require the
+    configured JWT to belong to a user listed in the server's moderators
+    file; otherwise the server returns ``Error NotPermitted`` and the call
+    returns ``False``.
     """
+
+    _ACTION_RESPONSE_TIMEOUT = 10.0
 
     def __init__(
         self,
         *,
         url: str = DEFAULT_WS_URL,
+        token: str | None = None,
         allow_messages: bool = True,
         insecure_ssl: bool = False,
         handlers: Handlers | None = None,
@@ -85,7 +101,7 @@ class PersistentClient:
         self.handlers = handlers or Handlers()
         self.reconnect = reconnect or ReconnectPolicy()
 
-        self._token: str | None = None
+        self._token: str | None = token
         self._task: asyncio.Task[None] | None = None
         self._exit = asyncio.Event()
         self._logged_in = asyncio.Event()
@@ -94,6 +110,10 @@ class PersistentClient:
         self._outgoing: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._uuid_to_username: dict[str, str] = {}
         self._username_to_uuid: dict[str, str] = {}
+
+        # Mod-action plumbing: a single in-flight action at a time.
+        self._action_lock = asyncio.Lock()
+        self._pending_action: _PendingAction | None = None
 
     # ----- public API ----------------------------------------------------
 
@@ -126,7 +146,7 @@ class PersistentClient:
         if self._task and not self._task.done():
             return self._task
         if not self._token:
-            raise MissingTokenError("call set_jwt_token() before start()")
+            raise MissingTokenError("call set_jwt_token() or pass token= before start()")
         self._enabled = True
         self._exit.clear()
         self._task = asyncio.create_task(self._run(), name="liquidchat-persistent")
@@ -143,12 +163,17 @@ class PersistentClient:
             self._task = None
         self._ws = None
         self._logged_in.clear()
+        self._fail_pending_action()
         while not self._outgoing.empty():
             self._outgoing.get_nowait()
             self._outgoing.task_done()
 
     async def send(self, message_type: str, content: dict[str, Any] | None = None) -> None:
-        """Queue an outbound message. Drops silently if not connected."""
+        """Queue an arbitrary outbound message (chat / private message / etc).
+
+        For responses to your own request, use the corresponding helper
+        (e.g. :meth:`ban_user`) instead.
+        """
         payload: dict[str, Any] = {"m": message_type}
         if content is not None:
             payload["c"] = content
@@ -159,6 +184,55 @@ class PersistentClient:
 
     async def request_user_count(self) -> None:
         await self.send("RequestUserCount")
+
+    # ----- moderation ----------------------------------------------------
+
+    async def ban_user(self, uuid: str) -> bool:
+        """Ban a user via the active connection. Returns server confirmation.
+
+        Returns ``False`` if not connected, if the server rejects the action
+        (e.g. ``NotPermitted``), or if no response arrives in time.
+        """
+        return await self._submit_action("BanUser", uuid, "Ban")
+
+    async def unban_user(self, uuid: str) -> bool:
+        """Unban a user via the active connection."""
+        return await self._submit_action("UnbanUser", uuid, "Unban")
+
+    async def _submit_action(
+        self,
+        action: Literal["BanUser", "UnbanUser"],
+        uuid: str,
+        expected: Literal["Ban", "Unban"],
+    ) -> bool:
+        ws = self._ws
+        if ws is None:
+            logger.warning("liquidchat not connected; %s for %s dropped", action, uuid)
+            return False
+        async with self._action_lock:
+            if self._ws is None:
+                return False
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[bool] = loop.create_future()
+            self._pending_action = _PendingAction(expected=expected, future=future)
+            try:
+                await self._ws.send(encode(action, {"user": uuid}))
+                try:
+                    return await asyncio.wait_for(future, timeout=self._ACTION_RESPONSE_TIMEOUT)
+                except TimeoutError:
+                    logger.error("%s for %s timed out", action, uuid)
+                    return False
+            except ConnectionClosed:
+                logger.warning("%s for %s lost connection", action, uuid)
+                return False
+            finally:
+                self._pending_action = None
+
+    def _fail_pending_action(self) -> None:
+        pa = self._pending_action
+        if pa is not None and not pa.future.done():
+            pa.future.set_result(False)
+        self._pending_action = None
 
     # ----- internals -----------------------------------------------------
 
@@ -192,6 +266,7 @@ class PersistentClient:
                             await self._receiver_loop(ws)
                         finally:
                             self._logged_in.clear()
+                            self._fail_pending_action()
                             sender.cancel()
                             with contextlib.suppress(asyncio.CancelledError, Exception):
                                 await sender
@@ -201,6 +276,7 @@ class PersistentClient:
                     logger.exception("liquidchat unexpected error")
 
                 self._ws = None
+                self._fail_pending_action()
                 if not self._enabled:
                     break
                 attempt += 1
@@ -266,6 +342,22 @@ class PersistentClient:
 
     async def _dispatch(self, msg: LiquidChatMessage) -> None:
         h = self.handlers
+        # Resolve in-flight mod action: server response is Success(Ban|Unban)
+        # or Error (e.g. NotPermitted / NotBanned).
+        if self._pending_action is not None:
+            pa = self._pending_action
+            if isinstance(msg.c, Success) and msg.c.reason in ("Ban", "Unban"):
+                if not pa.future.done():
+                    pa.future.set_result(msg.c.reason == pa.expected)
+                return
+            if isinstance(msg.c, Error):
+                if not pa.future.done():
+                    pa.future.set_result(False)
+                # also surface to on_error for visibility
+                if h.on_error:
+                    await _safe_call(h.on_error(msg.c.message))
+                return
+
         if isinstance(msg.c, MessageContent):
             self._uuid_to_username[msg.c.author_info.uuid] = msg.c.author_info.name
             self._username_to_uuid[msg.c.author_info.name.lower()] = msg.c.author_info.uuid
@@ -277,218 +369,6 @@ class PersistentClient:
             await _safe_call(h.on_user_count(msg.c.connections, msg.c.logged_in))
         elif isinstance(msg.c, Error) and h.on_error:
             await _safe_call(h.on_error(msg.c.message))
-
-
-# ---------------------------------------------------------------------------
-# Persistent moderator
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _PendingAction:
-    action: Literal["BanUser", "UnbanUser"]
-    uuid: str
-    future: asyncio.Future[bool]
-
-
-class PersistentModeratorClient:
-    """Long-lived moderation connection that processes ban / unban actions from a queue.
-
-    Suitable for high-frequency automod work — actions cost only one round-trip
-    each, and a broken connection triggers an exponential-backoff reconnect.
-    """
-
-    MAX_QUEUE_SIZE = 1000
-
-    def __init__(
-        self,
-        *,
-        url: str = DEFAULT_WS_URL,
-        insecure_ssl: bool = False,
-        reconnect: ReconnectPolicy | None = None,
-    ) -> None:
-        self._url = url
-        self._insecure_ssl = insecure_ssl
-        self.reconnect = reconnect or ReconnectPolicy()
-
-        self._token: str | None = None
-        self._task: asyncio.Task[None] | None = None
-        self._exit = asyncio.Event()
-        self._logged_in = asyncio.Event()
-        self._enabled = False
-        self._ws: websockets.ClientConnection | None = None
-        self._queue: asyncio.Queue[_PendingAction] = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
-
-    def set_jwt_token(self, token: str) -> None:
-        self._token = token
-
-    @property
-    def connected(self) -> bool:
-        return self._ws is not None
-
-    async def wait_until_logged_in(self, timeout: float | None = None) -> None:
-        """Block until the current websocket connection has logged in."""
-        if timeout is None:
-            await self._logged_in.wait()
-        else:
-            await asyncio.wait_for(self._logged_in.wait(), timeout=timeout)
-
-    async def start(self) -> asyncio.Task[None]:
-        if self._task and not self._task.done():
-            return self._task
-        if not self._token:
-            raise MissingTokenError("call set_jwt_token() before start()")
-        self._enabled = True
-        self._exit.clear()
-        self._task = asyncio.create_task(self._run(), name="liquidchat-mod-persistent")
-        return self._task
-
-    async def stop(self) -> None:
-        self._enabled = False
-        self._exit.set()
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._task
-            self._task = None
-        self._ws = None
-        self._logged_in.clear()
-        while not self._queue.empty():
-            pending = self._queue.get_nowait()
-            if not pending.future.done():
-                pending.future.set_result(False)
-            self._queue.task_done()
-
-    async def ban_user(self, uuid: str) -> bool:
-        return await self._enqueue("BanUser", uuid)
-
-    async def unban_user(self, uuid: str) -> bool:
-        return await self._enqueue("UnbanUser", uuid)
-
-    async def _enqueue(self, action: Literal["BanUser", "UnbanUser"], uuid: str) -> bool:
-        if not self.connected:
-            logger.warning("liquidchat moderator not connected; %s for %s dropped", action, uuid)
-            return False
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[bool] = loop.create_future()
-        try:
-            self._queue.put_nowait(_PendingAction(action=action, uuid=uuid, future=future))
-        except asyncio.QueueFull:
-            logger.error("liquidchat moderator queue full; dropping %s for %s", action, uuid)
-            return False
-        try:
-            return await asyncio.wait_for(future, timeout=30.0)
-        except TimeoutError:
-            return False
-
-    async def _run(self) -> None:
-        attempt = 0
-        while self._enabled and attempt < self.reconnect.max_attempts:
-            try:
-                connect_kwargs: dict[str, Any] = dict(
-                    close_timeout=5,
-                    max_size=10_485_760,
-                    compression=None,
-                    ping_interval=30,
-                    ping_timeout=10,
-                    proxy=None,
-                )
-                if self._url.startswith("wss://"):
-                    connect_kwargs["ssl"] = build_ssl_context(insecure=self._insecure_ssl)
-                async with websockets.connect(self._url, **connect_kwargs) as ws:
-                    self._ws = ws
-                    attempt = 0
-                    try:
-                        await self._login(ws)
-                    except LoginFailedError as e:
-                        raise RuntimeError(f"moderator login failed: {e}") from e
-                    self._logged_in.set()
-                    try:
-                        await self._process_queue(ws)
-                    finally:
-                        self._logged_in.clear()
-            except ConnectionClosed as e:
-                logger.warning("liquidchat moderator closed: %s", e)
-            except Exception:
-                logger.exception("liquidchat moderator error")
-
-            self._ws = None
-            if not self._enabled:
-                break
-            attempt += 1
-            delay = self.reconnect.delay(attempt)
-            logger.info("liquidchat moderator reconnecting in %.1fs", delay)
-            try:
-                await asyncio.wait_for(self._exit.wait(), timeout=delay)
-                break
-            except TimeoutError:
-                pass
-
-    async def _login(self, ws: websockets.ClientConnection) -> None:
-        assert self._token is not None
-        await ws.send(encode("LoginJWT", {"token": self._token, "allow_messages": False}))
-        deadline = asyncio.get_running_loop().time() + 10.0
-        loop = asyncio.get_running_loop()
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise LoginFailedError("login timeout")
-            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-            try:
-                msg = decode(raw)
-            except ProtocolError:
-                continue
-            if isinstance(msg.c, Success) and msg.c.reason == "Login":
-                return
-            if isinstance(msg.c, Error):
-                raise LoginFailedError(msg.c.message)
-
-    async def _process_queue(self, ws: websockets.ClientConnection) -> None:
-        while self._enabled:
-            try:
-                pending = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-            except TimeoutError:
-                if self._exit.is_set():
-                    return
-                continue
-            try:
-                success = await self._perform(ws, pending.action, pending.uuid)
-                if not pending.future.done():
-                    pending.future.set_result(success)
-            except ConnectionClosed:
-                if not pending.future.done():
-                    pending.future.set_result(False)
-                raise
-            except Exception:
-                logger.exception("liquidchat moderator action error")
-                if not pending.future.done():
-                    pending.future.set_result(False)
-            finally:
-                self._queue.task_done()
-
-    async def _perform(
-        self, ws: websockets.ClientConnection, action: Literal["BanUser", "UnbanUser"], uuid: str
-    ) -> bool:
-        expected = "Ban" if action == "BanUser" else "Unban"
-        await ws.send(encode(action, {"user": uuid}))
-        deadline = asyncio.get_running_loop().time() + 5.0
-        loop = asyncio.get_running_loop()
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                return False
-            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-            try:
-                msg = decode(raw)
-            except ProtocolError:
-                continue
-            if isinstance(msg.c, Success):
-                if msg.c.reason == expected:
-                    return True
-                continue
-            if isinstance(msg.c, Error):
-                logger.error("%s for %s failed: %s", action, uuid, msg.c.message)
-                return False
 
 
 async def _safe_call(awaitable: Awaitable[Any]) -> None:
@@ -505,7 +385,6 @@ __all__ = [
     "LifecycleHandler",
     "MessageHandler",
     "PersistentClient",
-    "PersistentModeratorClient",
     "PrivateMessageHandler",
     "ReconnectPolicy",
     "UserCountHandler",
