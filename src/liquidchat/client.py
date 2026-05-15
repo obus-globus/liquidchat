@@ -27,6 +27,7 @@ _WS_KWARGS: dict[str, Any] = {
     "compression": None,
     "ping_interval": None,
     "ping_timeout": None,
+    "proxy": None,
 }
 
 
@@ -175,7 +176,9 @@ class ModeratorClient:
                     except (TimeoutError, ProtocolError) as e:
                         logger.error("batch ban failed for %s: %s", uuid, e)
                         results[uuid] = False
-                    if progress and (idx % self.PROGRESS_UPDATE_FREQUENCY == 0 or idx == len(uuids)):
+                    if progress and (
+                        idx % self.PROGRESS_UPDATE_FREQUENCY == 0 or idx == len(uuids)
+                    ):
                         try:
                             await progress(idx, len(uuids), results)
                         except Exception:
