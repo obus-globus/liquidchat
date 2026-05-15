@@ -21,7 +21,7 @@ from liquidchat import (
 )
 
 
-def test_encode_envelope():
+def test_encode_envelope() -> None:
     assert json.loads(encode("Ping")) == {"m": "Ping"}
     assert json.loads(encode("Message", {"content": "hi"})) == {
         "m": "Message",
@@ -29,7 +29,7 @@ def test_encode_envelope():
     }
 
 
-def test_decode_round_trip_message():
+def test_decode_round_trip_message() -> None:
     raw = json.dumps(
         {
             "m": "Message",
@@ -44,39 +44,39 @@ def test_decode_round_trip_message():
     assert msg.c.content == "hello"
 
 
-def test_decode_user_count():
+def test_decode_user_count() -> None:
     msg = parse_message({"m": "UserCount", "c": {"connections": 12, "logged_in": 7}})
     assert isinstance(msg.c, UserCount)
     assert msg.c.connections == 12 and msg.c.logged_in == 7
 
 
-def test_decode_success_and_error():
+def test_decode_success_and_error() -> None:
     succ = parse_message({"m": "Success", "c": {"reason": "Login"}})
     assert isinstance(succ.c, Success) and succ.c.reason == "Login"
     err = parse_message({"m": "Error", "c": {"message": "bad token"}})
     assert isinstance(err.c, Error) and err.c.message == "bad token"
 
 
-def test_decode_new_jwt():
+def test_decode_new_jwt() -> None:
     msg = parse_message({"m": "NewJWT", "c": {"token": "abc"}})
     assert isinstance(msg.c, NewJWT) and msg.c.token == "abc"
 
 
-def test_request_types_allow_missing_body():
+def test_request_types_allow_missing_body() -> None:
     msg = parse_message({"m": "RequestUserCount"})
     assert msg.c is None
 
 
-def test_unknown_type_raises():
+def test_unknown_type_raises() -> None:
     with pytest.raises(ProtocolError):
         parse_message({"m": "WhoKnows", "c": {}})
 
 
-def test_missing_body_raises():
+def test_missing_body_raises() -> None:
     with pytest.raises(ProtocolError):
         parse_message({"m": "Message"})
 
 
-def test_malformed_payload_raises():
+def test_malformed_payload_raises() -> None:
     with pytest.raises(ProtocolError):
         parse_message({"m": "UserCount", "c": {"connections": 1}})  # missing logged_in

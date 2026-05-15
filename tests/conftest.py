@@ -169,9 +169,7 @@ def _ensure_server_alive(axochat_server: AxochatServer) -> None:
         return
     # Process still alive — verify port still accepts connections.
     try:
-        with socket.create_connection(
-            (axochat_server.host, axochat_server.port), timeout=0.5
-        ):
+        with socket.create_connection((axochat_server.host, axochat_server.port), timeout=0.5):
             pass
     except OSError:
         axochat_server.restart()
