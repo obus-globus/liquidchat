@@ -34,9 +34,10 @@ _WS_KWARGS: dict[str, Any] = {
 async def _open(
     url: str, *, insecure_ssl: bool = False, **overrides: Any
 ) -> AsyncIterator[websockets.ClientConnection]:
-    ctx = build_ssl_context(insecure=insecure_ssl)
     kwargs = {**_WS_KWARGS, **overrides}
-    async with websockets.connect(url, ssl=ctx, **kwargs) as ws:
+    if url.startswith("wss://"):
+        kwargs["ssl"] = build_ssl_context(insecure=insecure_ssl)
+    async with websockets.connect(url, **kwargs) as ws:
         yield ws
 
 
