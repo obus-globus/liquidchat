@@ -9,7 +9,7 @@ import pytest
 from liquidchat import ReconnectPolicy
 
 
-def test_delay_grows_exponentially_then_caps():
+def test_delay_grows_exponentially_then_caps() -> None:
     random.seed(0)
     p = ReconnectPolicy(base_delay=1.0, max_delay=10.0)
     delays = [p.delay(i) for i in range(10)]
@@ -20,13 +20,13 @@ def test_delay_grows_exponentially_then_caps():
         assert 8.5 <= d <= 11.5
 
 
-def test_delay_jitter_introduces_variance():
+def test_delay_jitter_introduces_variance() -> None:
     p = ReconnectPolicy(base_delay=2.0, max_delay=100.0)
     seen: set[float] = {p.delay(3) for _ in range(50)}
     assert len(seen) > 5, "expected jitter to vary the delay"
 
 
-def test_default_policy_sane():
+def test_default_policy_sane() -> None:
     p = ReconnectPolicy()
     assert p.base_delay > 0
     assert p.max_delay > p.base_delay
@@ -34,7 +34,7 @@ def test_default_policy_sane():
 
 
 @pytest.mark.parametrize("base", [0.5, 1.0, 5.0])
-def test_delay_is_positive(base: float):
+def test_delay_is_positive(base: float) -> None:
     p = ReconnectPolicy(base_delay=base, max_delay=base * 10)
     for i in range(20):
         assert p.delay(i) > 0
