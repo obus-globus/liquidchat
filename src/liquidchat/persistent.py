@@ -152,55 +152,60 @@ class PersistentClient:
     # ----- internals -----------------------------------------------------
 
     async def _run(self) -> None:
-        attempt = 0
-        while self._enabled and attempt < self.reconnect.max_attempts:
-            try:
-                connect_kwargs: dict[str, Any] = dict(close_timeout=5, ping_interval=30, ping_timeout=10)
-                if self._url.startswith('wss://'):
-                    connect_kwargs['ssl'] = build_ssl_context(insecure=self._insecure_ssl)
-                async with websockets.connect(self._url, **connect_kwargs) as ws:
-                    self._ws = ws
-                    attempt = 0
-                    if self.handlers.on_connect:
-                        await _safe_call(self.handlers.on_connect())
+        try:
+            attempt = 0
+            while self._enabled and attempt < self.reconnect.max_attempts:
+                try:
+                    connect_kwargs: dict[str, Any] = dict(
+                        close_timeout=5, ping_interval=30, ping_timeout=10, proxy=None
+                    )
+                    if self._url.startswith("wss://"):
+                        connect_kwargs["ssl"] = build_ssl_context(insecure=self._insecure_ssl)
+                    async with websockets.connect(self._url, **connect_kwargs) as ws:
+                        self._ws = ws
+                        attempt = 0
+                        if self.handlers.on_connect:
+                            await _safe_call(self.handlers.on_connect())
 
-                    try:
-                        await self._login(ws)
-                    except LoginFailedError as e:
-                        logger.error("liquidchat login failed: %s", e)
-                        continue
+                        try:
+                            await self._login(ws)
+                        except LoginFailedError as e:
+                            logger.error("liquidchat login failed: %s", e)
+                            continue
 
-                    if self.handlers.on_login_success:
-                        await _safe_call(self.handlers.on_login_success())
+                        if self.handlers.on_login_success:
+                            await _safe_call(self.handlers.on_login_success())
 
-                    sender = asyncio.create_task(self._sender_loop(ws))
-                    try:
-                        await self._receiver_loop(ws)
-                    finally:
-                        sender.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
-                            await sender
-            except ConnectionClosed as e:
-                logger.warning("liquidchat connection closed: %s", e)
-            except Exception:
-                logger.exception("liquidchat unexpected error")
+                        sender = asyncio.create_task(self._sender_loop(ws))
+                        try:
+                            await self._receiver_loop(ws)
+                        finally:
+                            sender.cancel()
+                            with contextlib.suppress(asyncio.CancelledError, Exception):
+                                await sender
+                except ConnectionClosed as e:
+                    logger.warning("liquidchat connection closed: %s", e)
+                except Exception:
+                    logger.exception("liquidchat unexpected error")
 
+                self._ws = None
+                if not self._enabled:
+                    break
+                attempt += 1
+                delay = self.reconnect.delay(attempt)
+                logger.info("liquidchat reconnecting in %.1fs (attempt %d)", delay, attempt)
+                if self.handlers.on_reconnect:
+                    await _safe_call(self.handlers.on_reconnect())
+                try:
+                    await asyncio.wait_for(self._exit.wait(), timeout=delay)
+                    break  # exit_event fired
+                except TimeoutError:
+                    pass
+        finally:
             self._ws = None
-            if not self._enabled:
-                break
-            attempt += 1
-            delay = self.reconnect.delay(attempt)
-            logger.info("liquidchat reconnecting in %.1fs (attempt %d)", delay, attempt)
-            if self.handlers.on_reconnect:
-                await _safe_call(self.handlers.on_reconnect())
-            try:
-                await asyncio.wait_for(self._exit.wait(), timeout=delay)
-                break  # exit_event fired
-            except TimeoutError:
-                pass
-
-        if self.handlers.on_disconnect:
-            await _safe_call(self.handlers.on_disconnect())
+            if self.handlers.on_disconnect:
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(_safe_call(self.handlers.on_disconnect()))
 
     async def _login(self, ws: websockets.ClientConnection) -> None:
         assert self._token is not None
@@ -270,7 +275,9 @@ class PersistentClient:
 class _PendingAction:
     action: Literal["BanUser", "UnbanUser"]
     uuid: str
-    future: asyncio.Future[bool] = field(default_factory=lambda: asyncio.get_event_loop().create_future())
+    future: asyncio.Future[bool] = field(
+        default_factory=lambda: asyncio.get_event_loop().create_future()
+    )
 
 
 class PersistentModeratorClient:
@@ -359,11 +366,15 @@ class PersistentModeratorClient:
         while self._enabled and attempt < self.reconnect.max_attempts:
             try:
                 connect_kwargs: dict[str, Any] = dict(
-                    close_timeout=5, max_size=10_485_760, compression=None,
-                    ping_interval=30, ping_timeout=10,
+                    close_timeout=5,
+                    max_size=10_485_760,
+                    compression=None,
+                    ping_interval=30,
+                    ping_timeout=10,
+                    proxy=None,
                 )
-                if self._url.startswith('wss://'):
-                    connect_kwargs['ssl'] = build_ssl_context(insecure=self._insecure_ssl)
+                if self._url.startswith("wss://"):
+                    connect_kwargs["ssl"] = build_ssl_context(insecure=self._insecure_ssl)
                 async with websockets.connect(self._url, **connect_kwargs) as ws:
                     self._ws = ws
                     attempt = 0
