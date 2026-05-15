@@ -59,9 +59,18 @@ class NewJWT:
 
 @dataclass(slots=True, frozen=True)
 class Error:
-    """Body of an ``Error`` message."""
+    """Body of an ``Error`` message.
 
-    message: str
+    The server's ``ClientError`` is a Rust enum serialized by serde:
+
+    * Unit variants come through as bare strings (e.g. ``"NotPermitted"``).
+    * Tuple variants come through as objects
+      (e.g. ``{"InvalidCharacter": "x"}``).
+
+    We keep the original shape so callers can pattern-match against it.
+    """
+
+    message: str | dict[str, Any]
 
 
 @dataclass(slots=True, frozen=True)

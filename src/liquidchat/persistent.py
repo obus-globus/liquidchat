@@ -7,7 +7,7 @@ import contextlib
 import logging
 import random
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import websockets
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 MessageHandler = Callable[[AuthorInfo, str], Awaitable[Any]]
 PrivateMessageHandler = Callable[[AuthorInfo, str], Awaitable[Any]]
 UserCountHandler = Callable[[int, int], Awaitable[Any]]
-ErrorHandler = Callable[[str], Awaitable[Any]]
+ErrorHandler = Callable[[str | dict[str, Any]], Awaitable[Any]]
 LifecycleHandler = Callable[[], Awaitable[Any]]
 
 
@@ -57,9 +57,10 @@ class ReconnectPolicy:
     max_attempts: int = 500_000
 
     def delay(self, attempt: int) -> float:
-        base = min(self.base_delay * (2**attempt), self.max_delay)
+        base: float = min(self.base_delay * (2**attempt), self.max_delay)
         jitter = base * 0.2
-        return base + (random.random() * jitter - jitter / 2)
+        offset: float = random.random() * jitter - jitter / 2
+        return base + offset
 
 
 class PersistentClient:
@@ -87,10 +88,12 @@ class PersistentClient:
         self._token: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._exit = asyncio.Event()
+        self._logged_in = asyncio.Event()
         self._enabled = False
         self._ws: websockets.ClientConnection | None = None
         self._outgoing: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._uuid_to_username: dict[str, str] = {}
+        self._username_to_uuid: dict[str, str] = {}
 
     # ----- public API ----------------------------------------------------
 
@@ -101,15 +104,22 @@ class PersistentClient:
     def connected(self) -> bool:
         return self._ws is not None
 
+    async def wait_until_logged_in(self, timeout: float | None = None) -> None:
+        """Block until the current websocket connection has logged in.
+
+        Useful for tests and bot startup. Resolves immediately if already
+        logged in; cleared on disconnect and re-set on next successful login.
+        """
+        if timeout is None:
+            await self._logged_in.wait()
+        else:
+            await asyncio.wait_for(self._logged_in.wait(), timeout=timeout)
+
     def get_username(self, uuid: str) -> str | None:
         return self._uuid_to_username.get(uuid)
 
     def get_uuid(self, username: str) -> str | None:
-        lower = username.lower()
-        return next(
-            (u for u, n in self._uuid_to_username.items() if n.lower() == lower),
-            None,
-        )
+        return self._username_to_uuid.get(username.lower())
 
     async def start(self) -> asyncio.Task[None]:
         """Start the background run loop. Returns the task."""
@@ -132,6 +142,7 @@ class PersistentClient:
                 await self._task
             self._task = None
         self._ws = None
+        self._logged_in.clear()
         while not self._outgoing.empty():
             self._outgoing.get_nowait()
             self._outgoing.task_done()
@@ -170,9 +181,9 @@ class PersistentClient:
                         try:
                             await self._login(ws)
                         except LoginFailedError as e:
-                            logger.error("liquidchat login failed: %s", e)
-                            continue
+                            raise RuntimeError(f"login failed: {e}") from e
 
+                        self._logged_in.set()
                         if self.handlers.on_login_success:
                             await _safe_call(self.handlers.on_login_success())
 
@@ -180,6 +191,7 @@ class PersistentClient:
                         try:
                             await self._receiver_loop(ws)
                         finally:
+                            self._logged_in.clear()
                             sender.cancel()
                             with contextlib.suppress(asyncio.CancelledError, Exception):
                                 await sender
@@ -204,7 +216,7 @@ class PersistentClient:
         finally:
             self._ws = None
             if self.handlers.on_disconnect:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await asyncio.shield(_safe_call(self.handlers.on_disconnect()))
 
     async def _login(self, ws: websockets.ClientConnection) -> None:
@@ -256,6 +268,7 @@ class PersistentClient:
         h = self.handlers
         if isinstance(msg.c, MessageContent):
             self._uuid_to_username[msg.c.author_info.uuid] = msg.c.author_info.name
+            self._username_to_uuid[msg.c.author_info.name.lower()] = msg.c.author_info.uuid
             if msg.m == "Message" and h.on_message:
                 await _safe_call(h.on_message(msg.c.author_info, msg.c.content))
             elif msg.m == "PrivateMessage" and h.on_private_message:
@@ -275,9 +288,7 @@ class PersistentClient:
 class _PendingAction:
     action: Literal["BanUser", "UnbanUser"]
     uuid: str
-    future: asyncio.Future[bool] = field(
-        default_factory=lambda: asyncio.get_event_loop().create_future()
-    )
+    future: asyncio.Future[bool]
 
 
 class PersistentModeratorClient:
@@ -303,6 +314,7 @@ class PersistentModeratorClient:
         self._token: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._exit = asyncio.Event()
+        self._logged_in = asyncio.Event()
         self._enabled = False
         self._ws: websockets.ClientConnection | None = None
         self._queue: asyncio.Queue[_PendingAction] = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
@@ -313,6 +325,13 @@ class PersistentModeratorClient:
     @property
     def connected(self) -> bool:
         return self._ws is not None
+
+    async def wait_until_logged_in(self, timeout: float | None = None) -> None:
+        """Block until the current websocket connection has logged in."""
+        if timeout is None:
+            await self._logged_in.wait()
+        else:
+            await asyncio.wait_for(self._logged_in.wait(), timeout=timeout)
 
     async def start(self) -> asyncio.Task[None]:
         if self._task and not self._task.done():
@@ -333,6 +352,7 @@ class PersistentModeratorClient:
                 await self._task
             self._task = None
         self._ws = None
+        self._logged_in.clear()
         while not self._queue.empty():
             pending = self._queue.get_nowait()
             if not pending.future.done():
@@ -381,9 +401,12 @@ class PersistentModeratorClient:
                     try:
                         await self._login(ws)
                     except LoginFailedError as e:
-                        logger.error("liquidchat moderator login failed: %s", e)
-                        continue
-                    await self._process_queue(ws)
+                        raise RuntimeError(f"moderator login failed: {e}") from e
+                    self._logged_in.set()
+                    try:
+                        await self._process_queue(ws)
+                    finally:
+                        self._logged_in.clear()
             except ConnectionClosed as e:
                 logger.warning("liquidchat moderator closed: %s", e)
             except Exception:

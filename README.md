@@ -21,8 +21,14 @@ asyncio.run(main())
 
 ### Validate a JWT
 ```python
+import asyncio
 from liquidchat import JWTValidationClient
-ok = await JWTValidationClient().validate("<jwt>")
+
+async def main() -> None:
+    ok = await JWTValidationClient().validate("<jwt>")
+    print("token valid:", ok)
+
+asyncio.run(main())
 ```
 
 ### Moderation (one-shot)

@@ -111,12 +111,33 @@ class JWTValidationClient:
         self._insecure_ssl = insecure_ssl
 
     async def validate(self, token: str) -> bool:
+        """Return True if ``token`` is accepted by the server.
+
+        Returns False when the server explicitly rejects the credentials
+        (``LoginFailedError``) or the login times out. Network-level errors
+        (connection refused, DNS failure) also return False so this function
+        is safe to call as a single boolean check — see :meth:`validate_strict`
+        if you need to distinguish "wrong creds" from "server unreachable".
+        """
+        try:
+            return await self.validate_strict(token)
+        except OSError as e:
+            logger.info("liquidchat token validation: server unreachable: %s", e)
+            return False
+
+    async def validate_strict(self, token: str) -> bool:
+        """Like :meth:`validate` but lets infrastructure errors propagate.
+
+        Returns False only when the server explicitly rejects the credentials.
+        Raises ``OSError`` / ``websockets.WebSocketException`` if the server is
+        unreachable, lets ``TimeoutError`` propagate.
+        """
         try:
             async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
                 await _login(ws, token, allow_messages=False)
             return True
-        except (LoginFailedError, TimeoutError, OSError) as e:
-            logger.info("liquidchat token validation failed: %s", e)
+        except LoginFailedError as e:
+            logger.info("liquidchat token validation: credentials rejected: %s", e)
             return False
 
 
@@ -168,27 +189,29 @@ class ModeratorClient:
 
         results: dict[str, bool] = {}
         try:
-            async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-                await _login(ws, self._token, allow_messages=False)
-                for idx, uuid in enumerate(uuids, 1):
-                    try:
-                        results[uuid] = await _send_action(ws, "BanUser", uuid, "Ban")
-                    except (TimeoutError, ProtocolError) as e:
-                        logger.error("batch ban failed for %s: %s", uuid, e)
-                        results[uuid] = False
-                    if progress and (
-                        idx % self.PROGRESS_UPDATE_FREQUENCY == 0 or idx == len(uuids)
-                    ):
+            try:
+                async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
+                    await _login(ws, self._token, allow_messages=False)
+                    for idx, uuid in enumerate(uuids, 1):
                         try:
-                            await progress(idx, len(uuids), results)
-                        except Exception:
-                            logger.exception("progress callback raised")
-        except (LoginFailedError, OSError, websockets.WebSocketException) as e:
-            logger.error("batch ban session failed: %s", e)
-
-        # Mark anyone we never reached as failed
-        for uuid in uuids:
-            results.setdefault(uuid, False)
+                            results[uuid] = await _send_action(ws, "BanUser", uuid, "Ban")
+                        except (TimeoutError, ProtocolError) as e:
+                            logger.error("batch ban failed for %s: %s", uuid, e)
+                            results[uuid] = False
+                        if progress and (
+                            idx % self.PROGRESS_UPDATE_FREQUENCY == 0 or idx == len(uuids)
+                        ):
+                            try:
+                                await progress(idx, len(uuids), dict(results))
+                            except Exception:
+                                logger.exception("progress callback raised")
+            except (LoginFailedError, OSError, websockets.WebSocketException) as e:
+                logger.error("batch ban session failed: %s", e)
+        finally:
+            # Runs on success, error, and cancellation: anyone we never reached
+            # is marked as failed.
+            for uuid in uuids:
+                results.setdefault(uuid, False)
         return results
 
 
