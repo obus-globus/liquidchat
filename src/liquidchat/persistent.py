@@ -155,13 +155,10 @@ class PersistentClient:
         attempt = 0
         while self._enabled and attempt < self.reconnect.max_attempts:
             try:
-                async with websockets.connect(
-                    self._url,
-                    ssl=build_ssl_context(insecure=self._insecure_ssl),
-                    close_timeout=5,
-                    ping_interval=30,
-                    ping_timeout=10,
-                ) as ws:
+                connect_kwargs: dict[str, Any] = dict(close_timeout=5, ping_interval=30, ping_timeout=10)
+                if self._url.startswith('wss://'):
+                    connect_kwargs['ssl'] = build_ssl_context(insecure=self._insecure_ssl)
+                async with websockets.connect(self._url, **connect_kwargs) as ws:
                     self._ws = ws
                     attempt = 0
                     if self.handlers.on_connect:
@@ -361,15 +358,13 @@ class PersistentModeratorClient:
         attempt = 0
         while self._enabled and attempt < self.reconnect.max_attempts:
             try:
-                async with websockets.connect(
-                    self._url,
-                    ssl=build_ssl_context(insecure=self._insecure_ssl),
-                    close_timeout=5,
-                    max_size=10_485_760,
-                    compression=None,
-                    ping_interval=30,
-                    ping_timeout=10,
-                ) as ws:
+                connect_kwargs: dict[str, Any] = dict(
+                    close_timeout=5, max_size=10_485_760, compression=None,
+                    ping_interval=30, ping_timeout=10,
+                )
+                if self._url.startswith('wss://'):
+                    connect_kwargs['ssl'] = build_ssl_context(insecure=self._insecure_ssl)
+                async with websockets.connect(self._url, **connect_kwargs) as ws:
                     self._ws = ws
                     attempt = 0
                     try:
