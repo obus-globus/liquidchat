@@ -168,6 +168,20 @@ class PersistentClient:
             self._outgoing.get_nowait()
             self._outgoing.task_done()
 
+    async def __aenter__(self) -> PersistentClient:
+        """Start the client and block until logged in."""
+        await self.start()
+        await self.wait_until_logged_in()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None:
+        await self.stop()
+
     async def send(self, message_type: str, content: dict[str, Any] | None = None) -> None:
         """Queue an arbitrary outbound message (chat / private message / etc).
 
