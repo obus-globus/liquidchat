@@ -81,6 +81,12 @@ class PersistentClient:
     configured JWT to belong to a user listed in the server's moderators
     file; otherwise the server returns ``Error NotPermitted`` and the call
     returns ``False``.
+
+    The ``accept_private_messages`` constructor flag controls whether the
+    server will forward inbound private messages (``PrivateMessage``) to
+    this connection. It does *not* affect outbound chat or moderation —
+    public ``Message`` broadcasts always reach every logged-in connection.
+    Defaults to ``True`` since persistent clients typically want both.
     """
 
     _ACTION_RESPONSE_TIMEOUT = 10.0
@@ -90,13 +96,13 @@ class PersistentClient:
         *,
         url: str = DEFAULT_WS_URL,
         token: str | None = None,
-        allow_messages: bool = True,
+        accept_private_messages: bool = True,
         insecure_ssl: bool = False,
         handlers: Handlers | None = None,
         reconnect: ReconnectPolicy | None = None,
     ) -> None:
         self._url = url
-        self._allow_messages = allow_messages
+        self._accept_private_messages = accept_private_messages
         self._insecure_ssl = insecure_ssl
         self.handlers = handlers or Handlers()
         self.reconnect = reconnect or ReconnectPolicy()
@@ -312,7 +318,9 @@ class PersistentClient:
     async def _login(self, ws: websockets.ClientConnection) -> None:
         assert self._token is not None
         await ws.send(
-            encode("LoginJWT", {"token": self._token, "allow_messages": self._allow_messages})
+            encode(
+                "LoginJWT", {"token": self._token, "allow_messages": self._accept_private_messages}
+            )
         )
         deadline = asyncio.get_running_loop().time() + 10.0
         loop = asyncio.get_running_loop()

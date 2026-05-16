@@ -323,7 +323,7 @@ async def test_persistent_client_buffers_sends_before_connect(
 async def test_persistent_moderator_ban_unban(axochat_server: AxochatServer, jwt_mod: str) -> None:
     from tests.conftest import TARGET_UUID
 
-    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
+    mod = PersistentClient(url=axochat_server.url, accept_private_messages=False)
     mod.set_jwt_token(jwt_mod)
     await mod.start()
     try:
@@ -344,7 +344,7 @@ async def test_persistent_moderator_rejects_when_no_perm(
 ) -> None:
     from tests.conftest import TARGET_UUID
 
-    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
+    mod = PersistentClient(url=axochat_server.url, accept_private_messages=False)
     mod.set_jwt_token(jwt_user_a)
     await mod.start()
     try:
@@ -357,7 +357,7 @@ async def test_persistent_moderator_rejects_when_no_perm(
 
 async def test_persistent_moderator_drops_when_disconnected(axochat_server: AxochatServer) -> None:
     """If never started, an action immediately returns False."""
-    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
+    mod = PersistentClient(url=axochat_server.url, accept_private_messages=False)
     # Token set but not started.
     mod.set_jwt_token("does-not-matter")
     assert mod.connected is False
@@ -367,7 +367,7 @@ async def test_persistent_moderator_drops_when_disconnected(axochat_server: Axoc
 async def test_persistent_moderator_start_without_token_raises(
     axochat_server: AxochatServer,
 ) -> None:
-    mod = PersistentClient(url=axochat_server.url, allow_messages=False)
+    mod = PersistentClient(url=axochat_server.url, accept_private_messages=False)
     with pytest.raises(MissingTokenError):
         await mod.start()
 
@@ -494,7 +494,7 @@ async def test_persistent_client_receives_private_message(
 
     receiver = PersistentClient(
         url=axochat_server.url,
-        allow_messages=True,
+        accept_private_messages=True,
         handlers=Handlers(on_private_message=on_private),
     )
     receiver.set_jwt_token(jwt_user_b)
@@ -539,9 +539,7 @@ async def test_error_message_dict_shape_does_not_crash() -> None:
 # ---------- chained one-shot session ----------
 
 
-async def test_session_chains_send_then_ban(
-    axochat_server: AxochatServer, jwt_mod: str
-) -> None:
+async def test_session_chains_send_then_ban(axochat_server: AxochatServer, jwt_mod: str) -> None:
     """A session lets us send a chat message and then ban a user on the same ws."""
     from tests.conftest import TARGET_UUID
 
@@ -604,7 +602,7 @@ async def test_session_send_private_message(
     receiver = PersistentClient(
         url=axochat_server.url,
         token=jwt_user_b,
-        allow_messages=True,
+        accept_private_messages=True,
         handlers=Handlers(on_private_message=on_private),
     )
     await receiver.start()

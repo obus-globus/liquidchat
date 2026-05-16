@@ -60,8 +60,8 @@ async with client.session() as s:
     await s.send_private_message("victim", "you've been warned")
 ```
 
-Pass `allow_messages=False` to the session for moderation-only flows so
-the server doesn't stream chat to you.
+Pass `accept_private_messages=False` to the session if you don't expect
+private messages in response.
 
 ## PersistentClient
 
