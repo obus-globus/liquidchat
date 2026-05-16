@@ -116,6 +116,34 @@ uv run ruff check .
 uv run mypy src/liquidchat
 ```
 
+## Username / UUID lookup
+
+`PersistentClient.get_username(uuid)` and `get_uuid(name)` consult a
+**local cache** populated from inbound chat traffic — no Mojang API
+call is made. They return `None` until the user has been observed in
+chat.
+
+For lookups beyond the cache (or in CLI/one-shot scripts), use the
+`liquidchat.mojang` helpers, which call Mojang's public profile API
+via `httpx`:
+
+```python
+from liquidchat.mojang import MojangClient, resolve_uuid, resolve_username
+
+# One-shot (creates and tears down an httpx.AsyncClient):
+uuid = await resolve_uuid("Notch")           # "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+name = await resolve_username(uuid)          # "Notch"
+
+# Batched (reuse one client):
+async with MojangClient() as mojang:
+    for name in names:
+        print(name, await mojang.resolve_uuid(name))
+```
+
+Returns `None` on a clean "not found" (HTTP 404 / 204). Other HTTP
+failures raise `MojangHTTPError`; network errors propagate as
+`httpx.RequestError`.
+
 ## More examples
 
 See [`examples.py`](./examples.py) for runnable snippets covering every
