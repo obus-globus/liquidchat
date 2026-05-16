@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Modernised for Python 3.13: `MessageHandler` / `PrivateMessageHandler`
+  / `UserCountHandler` / `ErrorHandler` / `LifecycleHandler` /
+  `ProgressCallback` are now PEP 695 `type` aliases. `Handlers` gained
+  `slots=True`. `ReconnectPolicy` and `_PendingAction` are now
+  `slots=True, frozen=True` — immutable as their usage intended.
+- `PersistentClient.wait_until_logged_in` rewritten on top of
+  `asyncio.timeout()` and a flat task-cleanup pass, replacing the
+  earlier `asyncio.wait(timeout=...)` + suppressed-await dance.
+- `MojangClient.lookup_by_name` and `lookup_by_uuid` now run their
+  path segments through `urllib.parse.quote` for defence-in-depth,
+  even though the username regex / UUID format check already restrict
+  the input alphabet.
+
 ### Fixed
 
 - `parse_message` now raises `ProtocolError` (not `TypeError`) on

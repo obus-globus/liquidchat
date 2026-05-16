@@ -29,14 +29,14 @@ from .protocol import DEFAULT_WS_URL, build_ssl_context, decode, encode
 logger = logging.getLogger(__name__)
 
 
-MessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
-PrivateMessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
-UserCountHandler = Callable[[int, int], Awaitable[object]]
-ErrorHandler = Callable[[str | dict[str, Any]], Awaitable[object]]
-LifecycleHandler = Callable[[], Awaitable[object]]
+type MessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
+type PrivateMessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
+type UserCountHandler = Callable[[int, int], Awaitable[object]]
+type ErrorHandler = Callable[[str | dict[str, Any]], Awaitable[object]]
+type LifecycleHandler = Callable[[], Awaitable[object]]
 
 
-@dataclass
+@dataclass(slots=True)
 class Handlers:
     """Container for ``PersistentClient`` event callbacks."""
 
@@ -50,7 +50,7 @@ class Handlers:
     on_reconnect: LifecycleHandler | None = None
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class ReconnectPolicy:
     """Exponential backoff with jitter."""
 
@@ -65,7 +65,7 @@ class ReconnectPolicy:
         return base + offset
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class _PendingAction:
     expected: Literal["Ban", "Unban"]
     future: asyncio.Future[bool]
@@ -150,20 +150,18 @@ class PersistentClient:
         logged_in = asyncio.create_task(self._logged_in.wait())
         failed = asyncio.create_task(self._login_failed_event.wait())
         try:
-            done, _ = await asyncio.wait(
-                [logged_in, failed],
-                timeout=timeout,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if not done:
-                raise TimeoutError("login did not complete within timeout")
+            try:
+                async with asyncio.timeout(timeout):
+                    await asyncio.wait([logged_in, failed], return_when=asyncio.FIRST_COMPLETED)
+            except TimeoutError:
+                raise TimeoutError("login did not complete within timeout") from None
             if self._login_failed:
                 raise LoginFailedError("server rejected token")
         finally:
             for t in (logged_in, failed):
                 if not t.done():
                     t.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                    with contextlib.suppress(BaseException):
                         await t
 
     def get_username(self, uuid: str) -> str | None:
