@@ -101,19 +101,27 @@ _BODY_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
-def parse_message(data: dict[str, Any]) -> LiquidChatMessage:
+def parse_message(data: Any) -> LiquidChatMessage:
     """Parse a decoded JSON envelope.
+
+    Accepts ``Any`` because the input is untrusted (the wire). All
+    structural validation happens here.
 
     :raises ProtocolError: if ``data`` is not a well-formed envelope.
     """
-    if "m" not in data:
-        raise ProtocolError(f"missing 'm' field: {data!r}")
-    msg_type = data["m"]
+    if not isinstance(data, dict):
+        raise ProtocolError(f"expected dict envelope, got {type(data).__name__}: {data!r}")
+    data_dict = cast(dict[str, Any], data)
+    if "m" not in data_dict:
+        raise ProtocolError(f"missing 'm' field: {data_dict!r}")
+    msg_type = data_dict["m"]
+    if not isinstance(msg_type, str):
+        raise ProtocolError(f"'m' must be a string, got {type(msg_type).__name__}: {msg_type!r}")
 
     if msg_type in _REQUEST_TYPES:
         return LiquidChatMessage(m=msg_type, c=None)
 
-    payload = data.get("c")
+    payload = data_dict.get("c")
     if payload is None:
         raise ProtocolError(f"missing 'c' field for {msg_type!r}")
 

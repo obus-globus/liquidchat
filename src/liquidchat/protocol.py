@@ -34,8 +34,17 @@ def encode(message_type: str, content: dict[str, Any] | None = None) -> str:
 
 
 def decode(raw: str | bytes) -> LiquidChatMessage:
-    """Decode and parse a wire message."""
-    return parse_message(json.loads(raw))
+    """Decode and parse a wire message.
+
+    :raises ProtocolError: on invalid JSON or any structural problem.
+    """
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        from .exceptions import ProtocolError
+
+        raise ProtocolError(f"invalid JSON on the wire: {e}") from e
+    return parse_message(data)
 
 
 __all__ = ["DEFAULT_WS_URL", "build_ssl_context", "decode", "encode"]

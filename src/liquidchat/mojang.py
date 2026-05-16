@@ -43,7 +43,7 @@ from types import TracebackType
 from typing import Final, Self
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .exceptions import LiquidChatError
 
@@ -191,8 +191,11 @@ class MojangClient:
             return None
         if resp.status_code != 200:
             raise MojangHTTPError(resp.status_code, url, resp.text)
-        data = resp.json()
-        return MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
+        try:
+            data = resp.json()
+            return MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
+        except (KeyError, TypeError, ValueError, ValidationError) as e:
+            raise MojangHTTPError(resp.status_code, url, f"malformed response: {e}") from e
 
     async def lookup_by_uuid(self, uuid: str) -> MojangProfile | None:
         """Full profile lookup by UUID. Returns ``None`` on 204/404."""
@@ -203,8 +206,11 @@ class MojangClient:
             return None
         if resp.status_code != 200:
             raise MojangHTTPError(resp.status_code, url, resp.text)
-        data = resp.json()
-        return MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
+        try:
+            data = resp.json()
+            return MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
+        except (KeyError, TypeError, ValueError, ValidationError) as e:
+            raise MojangHTTPError(resp.status_code, url, f"malformed response: {e}") from e
 
 
 async def resolve_uuid(username: str, *, timeout: float = 10.0) -> str | None:

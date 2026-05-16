@@ -197,3 +197,35 @@ def test_repr_smoke() -> None:
     # JSON round-trip via dataclass-style dict
     payload = {"uuid": p.uuid, "name": p.name}
     assert json.loads(json.dumps(payload)) == payload
+
+
+@pytest.mark.asyncio
+async def test_lookup_by_name_malformed_200_raises_http_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"name": "Notch"})  # missing 'id'
+
+    async with _make_client(httpx.MockTransport(handler)) as mojang:
+        with pytest.raises(MojangHTTPError) as excinfo:
+            await mojang.lookup_by_name("Notch")
+        assert "malformed" in str(excinfo.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_lookup_by_uuid_malformed_200_raises_http_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "not-a-uuid"})  # missing 'name', bad id
+
+    async with _make_client(httpx.MockTransport(handler)) as mojang:
+        with pytest.raises(MojangHTTPError) as excinfo:
+            await mojang.lookup_by_uuid("069a79f4-44e9-4726-a5be-fca90e38aaf5")
+        assert "malformed" in str(excinfo.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_lookup_by_name_array_response_raises_http_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "x", "name": "y"}])
+
+    async with _make_client(httpx.MockTransport(handler)) as mojang:
+        with pytest.raises(MojangHTTPError):
+            await mojang.lookup_by_name("Notch")
