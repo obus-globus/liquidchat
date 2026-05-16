@@ -112,6 +112,8 @@ class PersistentClient:
         self._exit = asyncio.Event()
         self._logged_in = asyncio.Event()
         self._enabled = False
+        self._login_failed = False
+        self._login_failed_event = asyncio.Event()
         self._ws: websockets.ClientConnection | None = None
         self._outgoing: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._uuid_to_username: dict[str, str] = {}
@@ -134,12 +136,32 @@ class PersistentClient:
         """Block until the current websocket connection has logged in.
 
         Useful for tests and bot startup. Resolves immediately if already
-        logged in; cleared on disconnect and re-set on next successful login.
+        logged in; cleared on disconnect and re-set on next successful
+        login.
+
+        Raises :class:`LoginFailedError` if the server has rejected our
+        token (the run loop has stopped retrying). In that case the
+        client is permanently disabled — call :meth:`set_jwt_token` and
+        :meth:`start` again to retry with a fresh token.
         """
-        if timeout is None:
-            await self._logged_in.wait()
-        else:
-            await asyncio.wait_for(self._logged_in.wait(), timeout=timeout)
+        logged_in = asyncio.create_task(self._logged_in.wait())
+        failed = asyncio.create_task(self._login_failed_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                [logged_in, failed],
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise TimeoutError("login did not complete within timeout")
+            if self._login_failed:
+                raise LoginFailedError("server rejected token")
+        finally:
+            for t in (logged_in, failed):
+                if not t.done():
+                    t.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await t
 
     def get_username(self, uuid: str) -> str | None:
         """Look up a username by UUID from the local cache.
@@ -300,8 +322,14 @@ class PersistentClient:
 
                         try:
                             await self._login(ws)
-                        except LoginFailedError as e:
-                            raise RuntimeError(f"login failed: {e}") from e
+                        except LoginFailedError:
+                            logger.error(
+                                "liquidchat login rejected by server; will not retry"
+                            )
+                            self._login_failed = True
+                            self._login_failed_event.set()
+                            self._enabled = False
+                            raise
 
                         self._logged_in.set()
                         if self.handlers.on_login_success:

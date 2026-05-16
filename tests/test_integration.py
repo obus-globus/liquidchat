@@ -641,3 +641,178 @@ async def test_persistent_client_context_manager(
     # After exit the client is stopped and on_disconnect has fired.
     assert not client.connected
     await asyncio.wait_for(seen_disconnect.wait(), timeout=2.0)
+
+
+# ---------- duplicate user (same JWT / same UUID) ----------
+
+
+async def test_two_connections_same_jwt_both_receive_broadcasts(
+    axochat_server: AxochatServer, jwt_user_a: str
+) -> None:
+    """axochat allows the same user to log in twice over JWT; both
+    connections should receive broadcasts and be able to send.
+
+    Confirmed against `axochat_server/src/chat/handler/jwt.rs`: JWT
+    login does NOT reject duplicate sessions (unlike the legacy
+    MojangInfo flow, which returns AlreadyLoggedIn). Both connections
+    end up in `UserSession.connections: HashSet<InternalId>` and the
+    rate limiter is shared per-user.
+    """
+    recv_a: list[tuple[str, str]] = []
+    recv_b: list[tuple[str, str]] = []
+    got_on_a = asyncio.Event()
+    got_on_b = asyncio.Event()
+
+    async def on_msg_a(author: AuthorInfo, content: str) -> None:
+        recv_a.append((author.name, content))
+        if content == "from-conn-b":
+            got_on_a.set()
+
+    async def on_msg_b(author: AuthorInfo, content: str) -> None:
+        recv_b.append((author.name, content))
+        if content == "from-conn-a":
+            got_on_b.set()
+
+    conn_a = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        handlers=Handlers(on_message=on_msg_a),
+    )
+    conn_b = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        handlers=Handlers(on_message=on_msg_b),
+    )
+
+    async with conn_a, conn_b:
+        # Both must be fully logged in before sending; the autouse
+        # context-manager fixture awaits wait_until_logged_in on __aenter__.
+        assert conn_a.connected and conn_b.connected
+
+        await conn_a.send_chat("from-conn-a")
+        await conn_b.send_chat("from-conn-b")
+
+        await asyncio.wait_for(got_on_a.wait(), timeout=3.0)
+        await asyncio.wait_for(got_on_b.wait(), timeout=3.0)
+
+    # Each connection received BOTH messages (server broadcasts to all
+    # sessions, including the sender's own connections). Author name is
+    # the same on both connections because they're the same user.
+    contents_a = sorted(c for _, c in recv_a)
+    contents_b = sorted(c for _, c in recv_b)
+    assert contents_a == ["from-conn-a", "from-conn-b"], contents_a
+    assert contents_b == ["from-conn-a", "from-conn-b"], contents_b
+    assert {name for name, _ in recv_a} == {"user_a"}
+    assert {name for name, _ in recv_b} == {"user_a"}
+
+
+async def test_two_connections_same_jwt_private_message_goes_to_one(
+    axochat_server: AxochatServer, jwt_user_a: str, jwt_user_b: str
+) -> None:
+    """**Documented axochat quirk:** a PrivateMessage addressed to a user
+    with multiple sessions is delivered to **only one** of them.
+
+    See ``axochat_server/src/chat/handler/message.rs`` lines 80-83: after
+    the first successful ``do_send`` the function ``return``\\ s, so the
+    iteration over ``receiver_user.connections`` stops. Which session
+    wins is HashSet-order, i.e. effectively non-deterministic.
+
+    This test pins the behaviour so that if axochat ever fixes the loop
+    (so PMs fan out to every session) we notice and update our docs.
+    """
+    seen: list[str] = []
+    delivered = asyncio.Event()
+
+    async def on_pm_a1(_author: AuthorInfo, content: str) -> None:
+        seen.append(f"a1:{content}")
+        delivered.set()
+
+    async def on_pm_a2(_author: AuthorInfo, content: str) -> None:
+        seen.append(f"a2:{content}")
+        delivered.set()
+
+    a1 = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        accept_private_messages=True,
+        handlers=Handlers(on_private_message=on_pm_a1),
+    )
+    a2 = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        accept_private_messages=True,
+        handlers=Handlers(on_private_message=on_pm_a2),
+    )
+    b = PersistentClient(url=axochat_server.url, token=jwt_user_b, handlers=Handlers())
+
+    async with a1, a2, b:
+        await b.send("PrivateMessage", {"receiver": "user_a", "content": "secret"})
+        await asyncio.wait_for(delivered.wait(), timeout=3.0)
+        # Give the server time to (NOT) fan out — if it ever did, the
+        # second handler would also fire.
+        await asyncio.sleep(0.5)
+
+    assert len(seen) == 1, f"expected exactly one delivery, got {seen}"
+    assert seen[0].endswith(":secret")
+
+
+async def test_two_connections_same_jwt_no_crosstalk_on_close(
+    axochat_server: AxochatServer, jwt_user_a: str
+) -> None:
+    """Closing one of two same-user sessions must not break the other.
+
+    Regression guard: confirms ``UserSession.connections`` only removes
+    the closing connection's id, leaving the surviving session able to
+    send and receive.
+    """
+    received: list[str] = []
+    got = asyncio.Event()
+
+    async def on_msg(_author: AuthorInfo, content: str) -> None:
+        if content == "after-close":
+            received.append(content)
+            got.set()
+
+    survivor = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        handlers=Handlers(on_message=on_msg),
+    )
+    doomed = PersistentClient(url=axochat_server.url, token=jwt_user_a)
+
+    async with survivor:
+        await doomed.__aenter__()
+        await doomed.__aexit__(None, None, None)
+        # Survivor should still work post-close of its sibling.
+        await survivor.send_chat("after-close")
+        await asyncio.wait_for(got.wait(), timeout=3.0)
+
+    assert received == ["after-close"]
+
+
+# ---------- auth-failure handling ----------
+
+
+async def test_persistent_client_invalid_token_fails_fast(
+    axochat_server: AxochatServer,
+) -> None:
+    """A rejected JWT should surface as ``LoginFailedError`` quickly
+    and stop the reconnect loop, not retry forever.
+    """
+    from liquidchat import LoginFailedError
+
+    client = PersistentClient(
+        url=axochat_server.url,
+        token="not-a-real-jwt",
+        handlers=Handlers(),
+        reconnect=ReconnectPolicy(base_delay=0.1, max_delay=0.5, max_attempts=50),
+    )
+    await client.start()
+    try:
+        with pytest.raises(LoginFailedError):
+            await client.wait_until_logged_in(timeout=5.0)
+        assert client._login_failed
+        assert not client._enabled
+    finally:
+        await client.stop()
+    assert not client.connected
