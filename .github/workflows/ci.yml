@@ -35,7 +35,19 @@ jobs:
         run: uv run basedpyright
 
       - name: pytest (unit tests only — integration tests need axochat)
-        run: uv run pytest -q -m "not integration"
+        run: uv run pytest -q -m "not integration" --cov --cov-report=term-missing --cov-report=xml
+
+      - name: deptry (dependency hygiene)
+        run: uv run deptry .
+
+      - name: pip-audit (supply-chain CVE scan)
+        run: uv run pip-audit --skip-editable
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
 
   build:
     name: build wheel

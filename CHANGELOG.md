@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Property-based tests via `hypothesis` (`tests/test_property.py`)
+  covering `parse_message` and the JWT decoders. Asserts that arbitrary
+  inputs only ever raise the documented `ProtocolError` /
+  `InvalidTokenError` — would have caught the two `TypeError` paths
+  fixed in the previous release.
+- `respx`-based example tests for `MojangClient`
+  (`tests/test_mojang_respx.py`) demonstrating the recommended idiom
+  for mocking `httpx.AsyncClient` calls. The original `test_mojang.py`
+  (MockTransport-based) is retained for tests that introspect raw
+  requests.
+- Coverage reporting wired through `pytest-cov`; `[tool.coverage.*]`
+  configured in `pyproject.toml` (branch coverage, `src/liquidchat`
+  scope). CI now uploads a `coverage.xml` artifact.
+- CI dependency-hygiene step via `deptry` and supply-chain CVE scan
+  via `pip-audit` (skips editable installs so the project itself
+  doesn't error).
+
 ### Changed
 
 - Modernised for Python 3.13: `MessageHandler` / `PrivateMessageHandler`
