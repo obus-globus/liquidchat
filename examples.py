@@ -178,7 +178,46 @@ async def example_user_lookup(jwt: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# What happens if a ban gets no response from the server?
+# 9. Mojang fallback for users not yet in the local cache.
+# ---------------------------------------------------------------------------
+
+
+async def example_mojang_lookup() -> None:
+    """Use the Mojang public API for users who haven't spoken in chat.
+
+    The persistent client only caches users it has observed. For
+    arbitrary username/UUID lookups, use the `liquidchat.mojang` helpers
+    (powered by `httpx`).
+    """
+    from liquidchat.mojang import MojangClient, resolve_username, resolve_uuid
+
+    # One-shot helpers — fine for single lookups:
+    uuid = await resolve_uuid("Notch")
+    print(f"Notch    -> {uuid}")
+    if uuid is not None:
+        print(f"{uuid} -> {await resolve_username(uuid)}")
+
+    # Reuse a single client for batches:
+    async with MojangClient() as mojang:
+        for name in ("Notch", "Dinnerbone", "ghost_user_404"):
+            profile = await mojang.lookup_by_name(name)
+            print(f"{name:20s} -> {profile}")
+
+
+async def example_lookup_with_mojang_fallback(jwt: str, name: str) -> str | None:
+    """Resolve a UUID by chat cache first, falling back to Mojang."""
+    from liquidchat.mojang import resolve_uuid
+
+    async def _noop(*_: object) -> None:
+        return None
+
+    async with PersistentClient(token=jwt, handlers=Handlers(on_message=_noop)) as client:
+        cached = client.get_uuid(name)
+        if cached is not None:
+            return cached
+    return await resolve_uuid(name)
+
+
 # ---------------------------------------------------------------------------
 #
 # Both `Client.ban_user` and `PersistentClient.ban_user` return `bool`:
