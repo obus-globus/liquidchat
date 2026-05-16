@@ -17,10 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PersistentClient.wait_until_logged_in` rewritten on top of
   `asyncio.timeout()` and a flat task-cleanup pass, replacing the
   earlier `asyncio.wait(timeout=...)` + suppressed-await dance.
-- `MojangClient.lookup_by_name` and `lookup_by_uuid` now run their
-  path segments through `urllib.parse.quote` for defence-in-depth,
-  even though the username regex / UUID format check already restrict
-  the input alphabet.
+- `MojangClient` now builds URLs via `httpx.URL.copy_with(path=...)`
+  instead of f-string concatenation + manual `urllib.parse.quote` +
+  `rstrip("/")` workaround. `profile_url` / `session_url` constructor
+  args accept `str | httpx.URL`. Percent-encoding and trailing-slash
+  handling are now httpx's problem.
 
 ### Fixed
 

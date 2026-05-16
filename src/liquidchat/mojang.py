@@ -41,7 +41,6 @@ from __future__ import annotations
 import re
 from types import TracebackType
 from typing import Final, Self
-from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -79,10 +78,10 @@ class MojangError(LiquidChatError):
 class MojangHTTPError(MojangError):
     """Raised when Mojang returns an unexpected (non-404) HTTP status."""
 
-    def __init__(self, status_code: int, url: str, body: str) -> None:
+    def __init__(self, status_code: int, url: str | httpx.URL, body: str) -> None:
         super().__init__(f"Mojang API {url} returned HTTP {status_code}: {body[:200]}")
         self.status_code = status_code
-        self.url = url
+        self.url = str(url)
         self.body = body
 
 
@@ -135,14 +134,14 @@ class MojangClient:
     def __init__(
         self,
         *,
-        profile_url: str = DEFAULT_PROFILE_URL,
-        session_url: str = DEFAULT_SESSION_URL,
+        profile_url: str | httpx.URL = DEFAULT_PROFILE_URL,
+        session_url: str | httpx.URL = DEFAULT_SESSION_URL,
         timeout: float = 10.0,
         client: httpx.AsyncClient | None = None,
         user_agent: str = "liquidchat/0.1 (+https://github.com/sokripon/olotldiscordbotnew)",
     ) -> None:
-        self._profile_url = profile_url.rstrip("/")
-        self._session_url = session_url.rstrip("/")
+        self._profile_url = httpx.URL(profile_url)
+        self._session_url = httpx.URL(session_url)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=timeout,
@@ -186,7 +185,7 @@ class MojangClient:
         """Full profile lookup by name. Returns ``None`` on 404."""
         if not _USERNAME_RE.match(username):
             raise ValueError(f"not a valid Minecraft username: {username!r}")
-        url = f"{self._profile_url}/users/profiles/minecraft/{quote(username, safe='')}"
+        url = self._profile_url.copy_with(path=f"/users/profiles/minecraft/{username}")
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):
             return None
@@ -201,7 +200,7 @@ class MojangClient:
     async def lookup_by_uuid(self, uuid: str) -> MojangProfile | None:
         """Full profile lookup by UUID. Returns ``None`` on 204/404."""
         undashed = strip_uuid(uuid)
-        url = f"{self._session_url}/session/minecraft/profile/{quote(undashed, safe='')}"
+        url = self._session_url.copy_with(path=f"/session/minecraft/profile/{undashed}")
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):
             return None
