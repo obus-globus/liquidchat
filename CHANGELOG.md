@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `examples.py` reorganised into an `examples/` directory grouped by
+  theme (`basic.py`, `moderation.py`, `bot.py`, `mojang.py`) with an
+  index README documenting the ban/unban return-value contract.
+
 ## [0.1.0] - 2026-05-16
 
 Initial alpha release.

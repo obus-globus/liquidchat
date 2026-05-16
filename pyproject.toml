@@ -57,7 +57,7 @@ markers = [
 ]
 
 [tool.basedpyright]
-include = ["src/liquidchat", "tests", "examples.py"]
+include = ["src/liquidchat", "tests", "examples"]
 # Tests import 'from tests.conftest import ...'; tell the resolver to
 # treat the project root as a search path so that works without an
 # __init__.py file (which would interfere with pytest's collection).
@@ -69,7 +69,7 @@ typeCheckingMode = "standard"
 strict = ["src/liquidchat"]
 executionEnvironments = [
     { root = "tests", reportPrivateUsage = "none", reportUnknownMemberType = "none", reportUnknownArgumentType = "none", reportUnknownVariableType = "none", reportUnknownParameterType = "none", reportMissingTypeStubs = "none" },
-    { root = "examples.py" },
+    { root = "examples" },
 ]
 # asyncio.create_task(...) returns we deliberately discard.
 reportUnusedCallResult = false
