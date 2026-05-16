@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -35,7 +35,7 @@ _WS_KWARGS: dict[str, Any] = {
 @asynccontextmanager
 async def _open(
     url: str, *, insecure_ssl: bool = False, **overrides: Any
-) -> AsyncIterator[websockets.ClientConnection]:
+) -> AsyncGenerator[websockets.ClientConnection]:
     kwargs = {**_WS_KWARGS, **overrides}
     if url.startswith("wss://"):
         kwargs["ssl"] = build_ssl_context(insecure=insecure_ssl)
@@ -269,7 +269,7 @@ class Client:
     # ---------- chained / multi-op sessions ----------
 
     @asynccontextmanager
-    async def session(self, *, accept_private_messages: bool = False) -> AsyncIterator[Session]:
+    async def session(self, *, accept_private_messages: bool = False) -> AsyncGenerator[Session]:
         """Open one websocket and run multiple actions on it.
 
         Example::

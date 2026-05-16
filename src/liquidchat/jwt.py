@@ -35,7 +35,7 @@ import binascii
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from .exceptions import LiquidChatError
 
@@ -106,18 +106,20 @@ def decode_unverified_payload(token: str) -> tuple[dict[str, Any], dict[str, Any
 
     Raises :class:`InvalidTokenError` on any structural problem.
     """
-    if not isinstance(token, str) or not token:
+    if not isinstance(token, str) or not token:  # pyright: ignore[reportUnnecessaryIsInstance]
         raise InvalidTokenError("token must be a non-empty string")
     parts = token.split(".")
     if len(parts) != 3:
         raise InvalidTokenError(f"expected 3 dot-separated segments, got {len(parts)}")
     try:
-        header = json.loads(_b64url_decode(parts[0]))
-        payload = json.loads(_b64url_decode(parts[1]))
+        header_raw: Any = json.loads(_b64url_decode(parts[0]))
+        payload_raw: Any = json.loads(_b64url_decode(parts[1]))
     except json.JSONDecodeError as e:
         raise InvalidTokenError(f"segment is not valid JSON: {e}") from e
-    if not isinstance(header, dict) or not isinstance(payload, dict):
+    if not isinstance(header_raw, dict) or not isinstance(payload_raw, dict):
         raise InvalidTokenError("header / payload must decode to JSON objects")
+    header = cast(dict[str, Any], header_raw)
+    payload = cast(dict[str, Any], payload_raw)
     return header, payload
 
 
@@ -138,16 +140,20 @@ def inspect_token(token: str) -> TokenInfo:
     if not isinstance(exp, int | float):
         raise InvalidTokenError("payload is missing numeric 'exp' claim")
 
-    user = payload.get("user")
-    if not isinstance(user, dict):
+    user_raw = payload.get("user")
+    if not isinstance(user_raw, dict):
         raise InvalidTokenError("payload is missing 'user' object")
+    user = cast(dict[str, Any], user_raw)
+    extracted: dict[str, str] = {}
     for field in _REQUIRED_USER_FIELDS:
-        if not isinstance(user.get(field), str) or not user[field]:
+        value = user.get(field)
+        if not isinstance(value, str) or not value:
             raise InvalidTokenError(f"payload.user is missing string field {field!r}")
+        extracted[field] = value
 
     return TokenInfo(
-        name=user["name"],
-        uuid=user["uuid"],
+        name=extracted["name"],
+        uuid=extracted["uuid"],
         expires_at=float(exp),
         algorithm=alg,
         raw_header=header,

@@ -1,0 +1,6 @@
+{
+  "include": ["src/liquidchat", "tests", "examples.py"],
+  "strict": ["src/liquidchat"],
+  "pythonVersion": "3.13",
+  "reportUnusedCallResult": false
+}
