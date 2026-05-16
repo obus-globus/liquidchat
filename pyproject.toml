@@ -36,8 +36,13 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.4",
+    "deptry>=0.25.1",
+    "hypothesis>=6.152.7",
+    "pip-audit>=2.10.0",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "respx>=0.23.1",
     "ruff>=0.15.13",
 ]
 
@@ -55,6 +60,24 @@ testpaths = ["tests"]
 markers = [
     "integration: tests that require a local axochat_server binary (auto-skipped in CI)",
 ]
+
+[tool.coverage.run]
+source = ["src/liquidchat"]
+branch = true
+omit = ["tests/*", "examples/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.deptry]
+extend_exclude = ["examples"]
 
 [tool.basedpyright]
 include = ["src/liquidchat", "tests", "examples"]
