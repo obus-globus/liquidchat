@@ -106,7 +106,7 @@ def decode_unverified_payload(token: str) -> tuple[dict[str, Any], dict[str, Any
 
     Raises :class:`InvalidTokenError` on any structural problem.
     """
-    if not isinstance(token, str) or not token:  # pyright: ignore[reportUnnecessaryIsInstance]
+    if not token:
         raise InvalidTokenError("token must be a non-empty string")
     parts = token.split(".")
     if len(parts) != 3:

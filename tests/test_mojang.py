@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -180,10 +181,9 @@ async def test_module_level_resolve_helpers(monkeypatch: pytest.MonkeyPatch) -> 
     transport = httpx.MockTransport(handler)
     real_async_client = httpx.AsyncClient
 
-    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+    def fake_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
         kwargs["transport"] = transport
-        # drop transport-incompatible kwargs httpx will reject? None should conflict.
-        return real_async_client(*args, **kwargs)  # type: ignore[arg-type]
+        return real_async_client(*args, **kwargs)
 
     monkeypatch.setattr("liquidchat.mojang.httpx.AsyncClient", fake_async_client)
 

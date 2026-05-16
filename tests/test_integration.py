@@ -119,7 +119,7 @@ async def test_moderator_batch_ban_progress_callback(
 ) -> None:
     mod = Client(url=axochat_server.url)
     mod.set_jwt_token(jwt_mod)
-    mod.PROGRESS_UPDATE_FREQUENCY = 2  # type: ignore[misc]
+    mod.PROGRESS_UPDATE_FREQUENCY = 2
 
     uuids = [f"33333333-3333-3333-3333-{i:012d}" for i in range(5)]
     # Clean slate
