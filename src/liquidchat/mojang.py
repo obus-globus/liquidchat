@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections import OrderedDict
 from types import TracebackType
 from typing import Final, Self
 
@@ -67,6 +68,10 @@ DEFAULT_PROFILE_URL: Final = "https://api.mojang.com"
 DEFAULT_SESSION_URL: Final = "https://sessionserver.mojang.com"
 DEFAULT_PROFILE_TTL: Final = 300.0
 DEFAULT_SESSION_TTL: Final = 20.0
+DEFAULT_CACHE_MAXSIZE: Final = 10_000
+# Cap any single Cache-Control max-age at 7 days to avoid permanent
+# poisoning if an upstream/proxy ever returns a wildly large value.
+MAX_CACHE_TTL: Final = 7 * 24 * 60 * 60.0
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
 _UUID_HYPHEN_RE = re.compile(
@@ -81,8 +86,9 @@ def _cache_ttl_from_response(cache_control: str | None, default_ttl: float) -> f
     """Return the TTL to apply for a successful response.
 
     Returns ``0`` when the response carries ``no-store`` / ``no-cache``
-    (caller should skip caching). Returns ``max-age`` when present,
-    otherwise falls back to ``default_ttl``.
+    (caller should skip caching). Returns ``max-age`` when present
+    (capped at :data:`MAX_CACHE_TTL` to avoid permanent caching from
+    malformed upstream values), otherwise falls back to ``default_ttl``.
     """
     if cache_control:
         cc = cache_control.lower()
@@ -90,7 +96,7 @@ def _cache_ttl_from_response(cache_control: str | None, default_ttl: float) -> f
             return 0.0
         m = _MAX_AGE_RE.search(cache_control)
         if m:
-            return float(m.group(1))
+            return min(float(m.group(1)), MAX_CACHE_TTL)
     return default_ttl
 
 
@@ -185,17 +191,21 @@ class MojangProfile(BaseModel):
 
 
 class _TTLCache:
-    """Tiny async-safe TTL cache. Keys → ``MojangProfile``.
+    """Tiny async-safe TTL cache with LRU eviction. Keys → ``MojangProfile``.
 
     Expiry is computed against :func:`time.monotonic` at insert time.
-    No background eviction — entries are dropped lazily on read.
+    Expired entries are dropped lazily on read. When the cache is full,
+    the least-recently-used entry is evicted on insert to keep memory
+    bounded — caller-controlled keys (usernames, UUIDs) can't grow the
+    cache without limit.
     """
 
-    __slots__ = ("_data", "_lock")
+    __slots__ = ("_data", "_lock", "_maxsize")
 
-    def __init__(self) -> None:
-        self._data: dict[str, tuple[float, MojangProfile]] = {}
+    def __init__(self, maxsize: int = DEFAULT_CACHE_MAXSIZE) -> None:
+        self._data: OrderedDict[str, tuple[float, MojangProfile]] = OrderedDict()
         self._lock = asyncio.Lock()
+        self._maxsize = maxsize
 
     async def get(self, key: str) -> MojangProfile | None:
         async with self._lock:
@@ -206,6 +216,7 @@ class _TTLCache:
             if expiry < time.monotonic():
                 del self._data[key]
                 return None
+            self._data.move_to_end(key)
             return value
 
     async def set(self, key: str, value: MojangProfile, ttl: float) -> None:
@@ -213,10 +224,16 @@ class _TTLCache:
             return
         async with self._lock:
             self._data[key] = (time.monotonic() + ttl, value)
+            self._data.move_to_end(key)
+            while len(self._data) > self._maxsize:
+                self._data.popitem(last=False)
 
     async def clear(self) -> None:
         async with self._lock:
             self._data.clear()
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 
 class MojangClient:
@@ -260,6 +277,12 @@ class MojangClient:
         )
         self._name_cache: _TTLCache | None = _TTLCache() if cache else None
         self._uuid_cache: _TTLCache | None = _TTLCache() if cache else None
+        # Single-flight: dedupes concurrent identical lookups so that a
+        # cold-cache burst (e.g. N coroutines all asking for "Notch")
+        # hits Mojang once, not N times. Kept independent of the cache
+        # because it's useful even when cache=False.
+        self._name_inflight: dict[str, asyncio.Future[MojangProfile | None]] = {}
+        self._uuid_inflight: dict[str, asyncio.Future[MojangProfile | None]] = {}
 
     async def __aenter__(self) -> Self:
         return self
@@ -322,6 +345,28 @@ class MojangClient:
             cached = await self._name_cache.get(key)
             if cached is not None:
                 return cached
+        existing = self._name_inflight.get(key)
+        if existing is not None:
+            return await asyncio.shield(existing)
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[MojangProfile | None] = loop.create_future()
+        self._name_inflight[key] = fut
+        try:
+            result = await self._fetch_by_name(username, key)
+        except BaseException as e:
+            if not fut.done():
+                fut.set_exception(e)
+            raise
+        else:
+            if not fut.done():
+                fut.set_result(result)
+            return result
+        finally:
+            self._name_inflight.pop(key, None)
+            if not fut.done():
+                fut.cancel()
+
+    async def _fetch_by_name(self, username: str, key: str) -> MojangProfile | None:
         url = self._profile_url.copy_with(path=f"/users/profiles/minecraft/{username}")
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):
@@ -350,6 +395,28 @@ class MojangClient:
             cached = await self._uuid_cache.get(undashed)
             if cached is not None:
                 return cached
+        existing = self._uuid_inflight.get(undashed)
+        if existing is not None:
+            return await asyncio.shield(existing)
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[MojangProfile | None] = loop.create_future()
+        self._uuid_inflight[undashed] = fut
+        try:
+            result = await self._fetch_by_uuid(undashed)
+        except BaseException as e:
+            if not fut.done():
+                fut.set_exception(e)
+            raise
+        else:
+            if not fut.done():
+                fut.set_result(result)
+            return result
+        finally:
+            self._uuid_inflight.pop(undashed, None)
+            if not fut.done():
+                fut.cancel()
+
+    async def _fetch_by_uuid(self, undashed: str) -> MojangProfile | None:
         url = self._session_url.copy_with(path=f"/session/minecraft/profile/{undashed}")
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):

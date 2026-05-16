@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Mojang lookup cache is now **bounded** (`maxsize=10_000`, LRU
+  eviction) — user-controlled cache keys can no longer grow memory
+  without limit. `MAX_CACHE_TTL` (7 days) caps any single entry's
+  lifetime even if upstream sends a wildly large `max-age` value.
+- **Single-flight** request deduplication: N concurrent identical
+  lookups (`lookup_by_name` / `lookup_by_uuid`) now share a single
+  in-flight fetch. Both errors and successes are propagated to every
+  waiter. Works independently of caching, so it helps on cold-start
+  bursts even when `cache=False`.
 - `MojangClient` now caches successful profile lookups in-process,
   honouring the upstream ``Cache-Control: max-age=N`` header (Mojang
   returns 300s for name→UUID and 20s for UUID→profile). Falls back to
