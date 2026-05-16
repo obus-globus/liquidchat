@@ -142,9 +142,22 @@ class PersistentClient:
             await asyncio.wait_for(self._logged_in.wait(), timeout=timeout)
 
     def get_username(self, uuid: str) -> str | None:
+        """Look up a username by UUID from the local cache.
+
+        Returns ``None`` if the user hasn't been observed yet. The cache
+        is populated purely from inbound ``Message`` / ``PrivateMessage``
+        packets — no Mojang API call is ever made. To pre-warm the
+        cache, let the client run for a bit or call
+        :meth:`request_user_count`.
+        """
         return self._uuid_to_username.get(uuid)
 
     def get_uuid(self, username: str) -> str | None:
+        """Look up a UUID by username (case-insensitive) from the local cache.
+
+        Returns ``None`` if the user hasn't been observed yet. See
+        :meth:`get_username` for caching semantics.
+        """
         return self._username_to_uuid.get(username.lower())
 
     async def start(self) -> asyncio.Task[None]:
