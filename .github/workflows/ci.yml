@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint + type-check + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Sync deps
+        run: uv sync --frozen --dev
+
+      - name: ruff (lint)
+        run: uv run ruff check .
+
+      - name: ruff (format)
+        run: uv run ruff format --check .
+
+      - name: basedpyright
+        run: uv run basedpyright
+
+      - name: pytest (unit tests only — integration tests need axochat)
+        run: uv run pytest -q -m "not integration"
+
+  build:
+    name: build wheel
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv build
+      - name: Verify py.typed in wheel
+        run: |
+          uv run python -c "import zipfile,glob; [print(zipfile.ZipFile(w).namelist()) for w in glob.glob('dist/*.whl')]" | grep py.typed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

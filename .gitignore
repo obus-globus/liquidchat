@@ -9,3 +9,16 @@ wheels/
 # Virtual environments
 .venv
 .pyre/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.basedpyright_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.idea/
+.vscode/
+
