@@ -186,3 +186,87 @@ async def test_clear_cache_forces_refetch(respx_mock: respx.Router) -> None:
         await mojang.clear_cache()
         await mojang.lookup_by_name(NOTCH_NAME)
     assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock(base_url="https://api.mojang.com")
+async def test_cache_actually_expires(respx_mock: respx.Router) -> None:
+    """After TTL elapses, the next lookup must refetch."""
+    import asyncio as _asyncio
+
+    route = respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME},
+            headers={"cache-control": "max-age=1"},
+        )
+    )
+    async with MojangClient() as mojang:
+        await mojang.lookup_by_name(NOTCH_NAME)
+        assert route.call_count == 1
+        # Cache hit while still inside TTL.
+        await mojang.lookup_by_name(NOTCH_NAME)
+        assert route.call_count == 1
+        await _asyncio.sleep(1.1)
+        # Now expired — must refetch.
+        await mojang.lookup_by_name(NOTCH_NAME)
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock(base_url="https://api.mojang.com")
+async def test_single_flight_dedupes_concurrent_lookups(respx_mock: respx.Router) -> None:
+    """N concurrent identical lookups must hit Mojang exactly once."""
+    import asyncio as _asyncio
+
+    async def slow_handler(_request: httpx.Request) -> httpx.Response:
+        # Tiny delay so all callers genuinely race.
+        await _asyncio.sleep(0.05)
+        return httpx.Response(
+            200,
+            json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME},
+            headers={"cache-control": "max-age=300"},
+        )
+
+    route = respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(side_effect=slow_handler)
+    async with MojangClient() as mojang:
+        results = await _asyncio.gather(*(mojang.lookup_by_name(NOTCH_NAME) for _ in range(10)))
+    assert all(r == MojangProfile(uuid=NOTCH_UUID_DASHED, name=NOTCH_NAME) for r in results)
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock(base_url="https://api.mojang.com")
+async def test_single_flight_works_with_cache_disabled(respx_mock: respx.Router) -> None:
+    """Single-flight should dedupe even when caching is off."""
+    import asyncio as _asyncio
+
+    async def slow_handler(_request: httpx.Request) -> httpx.Response:
+        await _asyncio.sleep(0.05)
+        return httpx.Response(200, json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME})
+
+    route = respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(side_effect=slow_handler)
+    async with MojangClient(cache=False) as mojang:
+        await _asyncio.gather(*(mojang.lookup_by_name(NOTCH_NAME) for _ in range(5)))
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock(base_url="https://api.mojang.com")
+async def test_single_flight_propagates_errors_to_all_waiters(
+    respx_mock: respx.Router,
+) -> None:
+    """If the upstream fetch fails, every waiter sees the same exception."""
+    import asyncio as _asyncio
+
+    async def slow_error(_request: httpx.Request) -> httpx.Response:
+        await _asyncio.sleep(0.05)
+        return httpx.Response(503, text="boom")
+
+    respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(side_effect=slow_error)
+    async with MojangClient() as mojang:
+        results = await _asyncio.gather(
+            *(mojang.lookup_by_name(NOTCH_NAME) for _ in range(5)),
+            return_exceptions=True,
+        )
+    assert all(isinstance(r, MojangHTTPError) and r.status_code == 503 for r in results)
