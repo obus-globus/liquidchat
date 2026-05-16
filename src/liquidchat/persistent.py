@@ -13,12 +13,13 @@ from typing import Any, Literal
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from .exceptions import LoginFailedError, MissingTokenError, ProtocolError
+from .exceptions import LiquidChatError, LoginFailedError, MissingTokenError, ProtocolError
 from .models import (
     AuthorInfo,
     Error,
     LiquidChatMessage,
     MessageContent,
+    NewJWT,
     Success,
     UserCount,
 )
@@ -122,6 +123,7 @@ class PersistentClient:
         # Mod-action plumbing: a single in-flight action at a time.
         self._action_lock = asyncio.Lock()
         self._pending_action: _PendingAction | None = None
+        self._pending_jwt: asyncio.Future[str] | None = None
 
     # ----- public API ----------------------------------------------------
 
@@ -267,6 +269,42 @@ class PersistentClient:
         """
         return await self._submit_action("UnbanUser", uuid, "Unban")
 
+    async def request_new_jwt(self, *, timeout: float = 10.0) -> str:
+        """Ask the server for a fresh JWT on the current session.
+
+        Sends ``RequestJWT`` over the live websocket and awaits the
+        matching ``NewJWT`` response. Useful for token rotation before
+        the current JWT expires (see :mod:`liquidchat.jwt`).
+
+        Returns the new token string. Raises:
+
+        - :class:`RuntimeError` if not currently connected / logged in
+        - :class:`TimeoutError` if the server doesn't respond within
+          ``timeout`` seconds
+        - :class:`LiquidChatError` if the server replies with an
+          ``Error`` (e.g. ``NotSupported`` when the server has no
+          authenticator configured)
+
+        Serialised against ban/unban via the same action lock; only one
+        request-response action is in flight at a time.
+        """
+        ws = self._ws
+        if ws is None or not self._logged_in.is_set():
+            raise RuntimeError("not connected / not logged in")
+        async with self._action_lock:
+            if self._ws is None:
+                raise RuntimeError("not connected")
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[str] = loop.create_future()
+            self._pending_jwt = future
+            try:
+                await self._ws.send(encode("RequestJWT"))
+                return await asyncio.wait_for(future, timeout=timeout)
+            except ConnectionClosed as e:
+                raise RuntimeError("connection closed before NewJWT") from e
+            finally:
+                self._pending_jwt = None
+
     async def _submit_action(
         self,
         action: Literal["BanUser", "UnbanUser"],
@@ -301,6 +339,10 @@ class PersistentClient:
         if pa is not None and not pa.future.done():
             pa.future.set_result(False)
         self._pending_action = None
+        pj = self._pending_jwt
+        if pj is not None and not pj.done():
+            pj.set_exception(LiquidChatError("connection lost during RequestJWT"))
+        self._pending_jwt = None
 
     # ----- internals -----------------------------------------------------
 
@@ -416,6 +458,11 @@ class PersistentClient:
 
     async def _dispatch(self, msg: LiquidChatMessage) -> None:
         h = self.handlers
+        # Resolve in-flight JWT request first (NewJWT has no other consumers).
+        if self._pending_jwt is not None and isinstance(msg.c, NewJWT):
+            if not self._pending_jwt.done():
+                self._pending_jwt.set_result(msg.c.token)
+            return
         # Resolve in-flight mod action: server response is Success(Ban|Unban)
         # or Error (e.g. NotPermitted / NotBanned).
         if self._pending_action is not None:
@@ -431,6 +478,16 @@ class PersistentClient:
                 if h.on_error:
                     await _safe_call(h.on_error(msg.c.message))
                 return
+        # An Error received while a JWT request is pending must surface
+        # to the pending future so the caller doesn't hang.
+        if self._pending_jwt is not None and isinstance(msg.c, Error):
+            if not self._pending_jwt.done():
+                self._pending_jwt.set_exception(
+                    LiquidChatError(f"RequestJWT rejected: {msg.c.message}")
+                )
+            if h.on_error:
+                await _safe_call(h.on_error(msg.c.message))
+            return
 
         if isinstance(msg.c, MessageContent):
             self._uuid_to_username[msg.c.author_info.uuid] = msg.c.author_info.name

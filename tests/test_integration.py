@@ -816,3 +816,62 @@ async def test_persistent_client_invalid_token_fails_fast(
     finally:
         await client.stop()
     assert not client.connected
+
+
+# ---------- RequestJWT (token rotation) ----------
+
+
+async def test_persistent_client_request_new_jwt(
+    axochat_server: AxochatServer, jwt_user_a: str
+) -> None:
+    """``request_new_jwt()`` should return a fresh, valid JWT for the
+    same user that we logged in with."""
+    from liquidchat.jwt import inspect_token
+
+    async with PersistentClient(url=axochat_server.url, token=jwt_user_a) as client:
+        new_token = await client.request_new_jwt(timeout=5.0)
+
+    assert isinstance(new_token, str) and new_token
+    # Token may be identical to the input (same user, same exp-second);
+    # what matters is that it parses and is server-issued.
+
+    info = inspect_token(new_token)
+    assert info.name == "user_a"
+    assert info.uuid == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert info.algorithm == "HS256"
+    assert not info.is_expired()
+
+
+async def test_request_new_jwt_round_trips_through_login(
+    axochat_server: AxochatServer, jwt_user_a: str
+) -> None:
+    """The rotated token must itself be accepted by the server."""
+    async with PersistentClient(url=axochat_server.url, token=jwt_user_a) as client:
+        fresh = await client.request_new_jwt(timeout=5.0)
+
+    # Open a brand-new connection with the freshly minted token.
+    async with PersistentClient(url=axochat_server.url, token=fresh) as client2:
+        assert client2.connected
+
+
+async def test_request_new_jwt_serialised_with_ban(
+    axochat_server: AxochatServer, jwt_mod: str
+) -> None:
+    """RequestJWT and ban_user must not deadlock or interleave (share
+    the same action lock)."""
+    from tests.conftest import TARGET_UUID
+
+    async with PersistentClient(url=axochat_server.url, token=jwt_mod) as mod:
+        # Fire both at the same time; the lock should serialise them.
+        tok_task = asyncio.create_task(mod.request_new_jwt(timeout=5.0))
+        ban_task = asyncio.create_task(mod.ban_user(TARGET_UUID))
+        new_tok, banned = await asyncio.gather(tok_task, ban_task)
+    assert isinstance(new_tok, str) and new_tok
+    assert banned is True
+
+
+async def test_request_new_jwt_not_connected() -> None:
+    """Calling on a non-started client must raise, not hang."""
+    client = PersistentClient(url="ws://127.0.0.1:1/ws", token="x")
+    with pytest.raises(RuntimeError, match="not connected"):
+        await client.request_new_jwt(timeout=1.0)
