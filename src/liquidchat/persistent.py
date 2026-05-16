@@ -210,13 +210,26 @@ class PersistentClient:
     async def ban_user(self, uuid: str) -> bool:
         """Ban a user via the active connection. Returns server confirmation.
 
-        Returns ``False`` if not connected, if the server rejects the action
-        (e.g. ``NotPermitted``), or if no response arrives in time.
+        Returns ``False`` (rather than raising) if:
+
+        - not connected (no in-flight websocket)
+        - the server replies with an ``Error`` (e.g. ``NotPermitted``,
+          ``NotBanned``) — the error is also forwarded to ``on_error``
+        - no response arrives within 10 seconds
+        - the websocket closes before a response is received
+
+        A late response that arrives after the 10s timeout is silently
+        discarded (the ``_pending_action`` slot has already been cleared).
+        Callers that need certainty should retry; the persistent
+        connection keeps the cost low.
         """
         return await self._submit_action("BanUser", uuid, "Ban")
 
     async def unban_user(self, uuid: str) -> bool:
-        """Unban a user via the active connection."""
+        """Unban a user via the active connection.
+
+        Same ``False`` semantics as :meth:`ban_user`.
+        """
         return await self._submit_action("UnbanUser", uuid, "Unban")
 
     async def _submit_action(

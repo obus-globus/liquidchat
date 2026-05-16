@@ -115,3 +115,11 @@ uv run pytest
 uv run ruff check .
 uv run mypy src/liquidchat
 ```
+
+## More examples
+
+See [`examples.py`](./examples.py) for runnable snippets covering every
+workflow: one-shot send / validate / batch ban, chained sessions, chat
+bots, automod, custom reconnect policies, and the username/UUID cache.
+It also documents what happens when a ban gets no response from the
+server.
