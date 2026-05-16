@@ -34,6 +34,14 @@ from .exceptions import (
     MissingTokenError,
     ProtocolError,
 )
+from .jwt import (
+    InvalidTokenError,
+    TokenInfo,
+    decode_unverified_payload,
+    inspect_token,
+    is_token_expired,
+    seconds_until_expiry,
+)
 from .models import (
     AuthorInfo,
     Error,
@@ -71,6 +79,7 @@ __all__ = [
     "Error",
     "ErrorHandler",
     "Handlers",
+    "InvalidTokenError",
     "LifecycleHandler",
     "LiquidChatError",
     "LiquidChatMessage",
@@ -89,11 +98,16 @@ __all__ = [
     "Session",
     "Success",
     "SuccessReason",
+    "TokenInfo",
     "UserCount",
     "UserCountHandler",
     "__version__",
     "build_ssl_context",
     "decode",
+    "decode_unverified_payload",
     "encode",
+    "inspect_token",
+    "is_token_expired",
     "parse_message",
+    "seconds_until_expiry",
 ]

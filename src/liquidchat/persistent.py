@@ -323,9 +323,7 @@ class PersistentClient:
                         try:
                             await self._login(ws)
                         except LoginFailedError:
-                            logger.error(
-                                "liquidchat login rejected by server; will not retry"
-                            )
+                            logger.error("liquidchat login rejected by server; will not retry")
                             self._login_failed = True
                             self._login_failed_event.set()
                             self._enabled = False
