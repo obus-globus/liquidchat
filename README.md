@@ -73,25 +73,21 @@ async def on_message(author, content):
     print(f"<{author.name}> {content}")
 
 async def main() -> None:
-    client = PersistentClient(
+    async with PersistentClient(
         token="<jwt>",
         handlers=Handlers(on_message=on_message),
-    )
-    await client.start()
-    await client.wait_until_logged_in(timeout=5.0)
-
-    await client.send_chat("hi everyone")
-
-    # Moderation works on the same connection (if the JWT has perms)
-    await client.ban_user("<uuid>")
-
-    try:
+    ) as client:
+        await client.send_chat("hi everyone")
+        # Moderation works on the same connection (if the JWT has perms)
+        await client.ban_user("<uuid>")
         await asyncio.sleep(3600)
-    finally:
-        await client.stop()
 
 asyncio.run(main())
 ```
+
+`async with` starts the client, waits until it's logged in, and tears
+it down on exit. Use `start()` / `stop()` explicitly if you need
+finer-grained control.
 
 `Handlers` accepts `on_message`, `on_private_message`, `on_user_count`,
 `on_error`, plus lifecycle hooks (`on_connect`, `on_login_success`,

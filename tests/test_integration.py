@@ -617,3 +617,29 @@ async def test_session_send_private_message(
         await receiver.stop()
 
     assert captured[0][1] == "session-pm"
+
+
+# ---------- async with PersistentClient ----------
+
+
+async def test_persistent_client_context_manager(
+    axochat_server: AxochatServer, jwt_user_a: str
+) -> None:
+    """``async with PersistentClient(...) as c`` should start + wait_until_logged_in
+    on entry and stop on exit."""
+    seen_disconnect = asyncio.Event()
+
+    async def on_disconnect() -> None:
+        seen_disconnect.set()
+
+    async with PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_a,
+        handlers=Handlers(on_disconnect=on_disconnect),
+    ) as client:
+        assert client.connected
+        await client.send_chat("hello from ctx mgr")
+
+    # After exit the client is stopped and on_disconnect has fired.
+    assert not client.connected
+    await asyncio.wait_for(seen_disconnect.wait(), timeout=2.0)
