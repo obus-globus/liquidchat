@@ -46,6 +46,23 @@ asyncio.run(main())
 `validate()` returns `False` on bad credentials *or* an unreachable server.
 Use `validate_strict()` if you need network errors to propagate instead.
 
+### Chaining actions on one connection
+
+`Client.session()` opens a single websocket and yields a `Session` you
+can run multiple actions on, avoiding the cost of reconnecting and
+re-logging-in between operations:
+
+```python
+async with client.session() as s:
+    await s.send_message("about to clean up...")
+    await s.ban_user("<uuid>")
+    await s.unban_user("<other-uuid>")
+    await s.send_private_message("victim", "you've been warned")
+```
+
+Pass `allow_messages=False` to the session for moderation-only flows so
+the server doesn't stream chat to you.
+
 ## PersistentClient
 
 ```python
