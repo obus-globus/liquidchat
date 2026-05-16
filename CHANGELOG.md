@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `MojangClient` now caches successful profile lookups in-process,
+  honouring the upstream ``Cache-Control: max-age=N`` header (Mojang
+  returns 300s for name→UUID and 20s for UUID→profile). Falls back to
+  those defaults when the header is missing; respects ``no-store`` /
+  ``no-cache`` by skipping the cache entirely. Pass ``cache=False`` to
+  disable, or call ``await client.clear_cache()`` to reset.
+- New `MojangRateLimitError` (subclass of `MojangHTTPError`) raised on
+  HTTP 429. Surfaces `retry_after` (parsed from the standard
+  ``Retry-After`` header — Mojang doesn't currently send one, but the
+  hook is there) and `rate_limit_result` (from Mojang's bespoke
+  ``X-Minecraft-Rate-Limit-Result`` header).
+- `MojangHTTPError` gained a `rate_limit_result` attribute populated
+  for all error responses, useful for distinguishing "throttled by
+  Mojang" from "Mojang had a 500".
 - Property-based tests via `hypothesis` (`tests/test_property.py`)
   covering `parse_message` and the JWT decoders. Asserts that arbitrary
   inputs only ever raise the documented `ProtocolError` /
