@@ -197,8 +197,10 @@ configurable `exp` clock check.
 
 ## More examples
 
-See [`examples.py`](./examples.py) for runnable snippets covering every
-workflow: one-shot send / validate / batch ban, chained sessions, chat
-bots, automod, custom reconnect policies, and the username/UUID cache.
-It also documents what happens when a ban gets no response from the
-server.
+See the [`examples/`](./examples/) directory for runnable snippets
+grouped by theme: [`basic.py`](./examples/basic.py) (one-shot
+send/validate), [`moderation.py`](./examples/moderation.py) (batch
+ban + automod), [`bot.py`](./examples/bot.py) (chat bots, custom
+reconnect, user lookup), and [`mojang.py`](./examples/mojang.py)
+(Mojang API fallback). The [`examples/README.md`](./examples/README.md)
+also documents the ban/unban return-value contract in detail.
