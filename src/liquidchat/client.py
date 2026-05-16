@@ -215,12 +215,21 @@ class Client:
     # ---------- moderation ----------
 
     async def ban_user(self, uuid: str) -> bool:
-        """Ban a single user. Returns whether the server confirmed the action."""
+        """Ban a single user. Returns whether the server confirmed.
+
+        Returns ``False`` (rather than raising) if the server replies with
+        an ``Error`` (e.g. ``NotPermitted``), if no response arrives
+        within 5 seconds, or if the websocket dies mid-action. Inspect
+        the package logger for the reason.
+        """
         async with self.session(accept_private_messages=False) as s:
             return await s.ban_user(uuid)
 
     async def unban_user(self, uuid: str) -> bool:
-        """Unban a single user. Returns whether the server confirmed the action."""
+        """Unban a single user. Returns whether the server confirmed.
+
+        Same ``False`` semantics as :meth:`ban_user`.
+        """
         async with self.session(accept_private_messages=False) as s:
             return await s.unban_user(uuid)
 
