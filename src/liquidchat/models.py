@@ -99,7 +99,7 @@ def parse_message(data: dict[str, Any]) -> LiquidChatMessage:
 
     :raises ProtocolError: if ``data`` is not a well-formed envelope.
     """
-    if not isinstance(data, dict) or "m" not in data:
+    if "m" not in data:
         raise ProtocolError(f"missing 'm' field: {data!r}")
     msg_type = data["m"]
     payload = data.get("c")
