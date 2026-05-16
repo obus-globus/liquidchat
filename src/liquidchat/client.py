@@ -12,7 +12,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any
 
 import websockets
 
@@ -110,6 +110,34 @@ async def _send_action(
 ProgressCallback = Callable[[int, int, dict[str, bool]], Awaitable[None]]
 
 
+class Session:
+    """A single live websocket on which multiple actions can be run.
+
+    Obtain via :meth:`Client.session`. Do not instantiate directly.
+    Methods raise :class:`websockets.exceptions.ConnectionClosed` if the
+    underlying connection dies mid-session.
+    """
+
+    def __init__(self, ws: websockets.ClientConnection) -> None:
+        self._ws = ws
+
+    async def send_message(self, content: str) -> None:
+        """Send a chat message on the active session."""
+        await self._ws.send(encode("Message", {"content": content}))
+
+    async def send_private_message(self, receiver: str, content: str) -> None:
+        """Send a private message to ``receiver`` (a username or UUID)."""
+        await self._ws.send(encode("PrivateMessage", {"receiver": receiver, "content": content}))
+
+    async def ban_user(self, uuid: str) -> bool:
+        """Ban a user. Returns whether the server confirmed."""
+        return await _send_action(self._ws, "BanUser", uuid, "Ban")
+
+    async def unban_user(self, uuid: str) -> bool:
+        """Unban a user. Returns whether the server confirmed."""
+        return await _send_action(self._ws, "UnbanUser", uuid, "Unban")
+
+
 class Client:
     """One-shot LiquidChat client.
 
@@ -179,29 +207,20 @@ class Client:
 
     async def send_message(self, content: str) -> None:
         """Send a single chat message. Raises on failure."""
-        tok = self._resolve_token(None)
-        async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-            await _login(ws, tok, allow_messages=True)
-            await ws.send(encode("Message", {"content": content}))
-            logger.info("liquidchat message sent")
+        async with self.session(allow_messages=True) as s:
+            await s.send_message(content)
 
     # ---------- moderation ----------
 
     async def ban_user(self, uuid: str) -> bool:
         """Ban a single user. Returns whether the server confirmed the action."""
-        return await self._action("BanUser", uuid, "Ban")
+        async with self.session(allow_messages=False) as s:
+            return await s.ban_user(uuid)
 
     async def unban_user(self, uuid: str) -> bool:
         """Unban a single user. Returns whether the server confirmed the action."""
-        return await self._action("UnbanUser", uuid, "Unban")
-
-    async def _action(
-        self, action: Literal["BanUser", "UnbanUser"], uuid: str, expected: str
-    ) -> bool:
-        tok = self._resolve_token(None)
-        async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-            await _login(ws, tok, allow_messages=False)
-            return await _send_action(ws, action, uuid, expected)
+        async with self.session(allow_messages=False) as s:
+            return await s.unban_user(uuid)
 
     async def ban_users_batch(
         self,
@@ -210,16 +229,13 @@ class Client:
         progress: ProgressCallback | None = None,
     ) -> dict[str, bool]:
         """Ban many users over a single websocket. Returns ``{uuid: success}``."""
-        tok = self._resolve_token(None)
-
         results: dict[str, bool] = {}
         try:
             try:
-                async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-                    await _login(ws, tok, allow_messages=False)
+                async with self.session(allow_messages=False) as s:
                     for idx, uuid in enumerate(uuids, 1):
                         try:
-                            results[uuid] = await _send_action(ws, "BanUser", uuid, "Ban")
+                            results[uuid] = await s.ban_user(uuid)
                         except (TimeoutError, ProtocolError) as e:
                             logger.error("batch ban failed for %s: %s", uuid, e)
                             results[uuid] = False
@@ -239,6 +255,27 @@ class Client:
                 results.setdefault(uuid, False)
         return results
 
+    # ---------- chained / multi-op sessions ----------
+
+    @asynccontextmanager
+    async def session(self, *, allow_messages: bool = True) -> AsyncIterator[Session]:
+        """Open one websocket and run multiple actions on it.
+
+        Example::
+
+            async with client.session() as s:
+                await s.send_message("about to clean up...")
+                await s.ban_user("<uuid>")
+                await s.unban_user("<other-uuid>")
+
+        Set ``allow_messages=False`` if the session is moderation-only
+        (saves having the server stream chat events you'll discard).
+        """
+        tok = self._resolve_token(None)
+        async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
+            await _login(ws, tok, allow_messages=allow_messages)
+            yield Session(ws)
+
     # ---------- internals ----------
 
     def _resolve_token(self, override: str | None) -> str:
@@ -254,4 +291,5 @@ class Client:
 __all__ = [
     "Client",
     "ProgressCallback",
+    "Session",
 ]

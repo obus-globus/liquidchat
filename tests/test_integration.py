@@ -534,3 +534,86 @@ async def test_error_message_dict_shape_does_not_crash() -> None:
 
     assert isinstance(msg.c, Error)
     assert msg.c.message == {"InvalidCharacter": "@"}
+
+
+# ---------- chained one-shot session ----------
+
+
+async def test_session_chains_send_then_ban(
+    axochat_server: AxochatServer, jwt_mod: str
+) -> None:
+    """A session lets us send a chat message and then ban a user on the same ws."""
+    from tests.conftest import TARGET_UUID
+
+    client = Client(url=axochat_server.url, token=jwt_mod)
+    async with client.session() as s:
+        await s.send_message("about to clean up")
+        assert await s.ban_user(TARGET_UUID) is True
+        assert await s.unban_user(TARGET_UUID) is True
+
+
+async def test_session_reuses_single_connection(
+    axochat_server: AxochatServer, jwt_user_a: str, jwt_user_b: str
+) -> None:
+    """A second user observes both messages sent from one session — proves it's one login."""
+    received: list[str] = []
+    got_two = asyncio.Event()
+
+    async def on_message(_author: AuthorInfo, content: str) -> None:
+        received.append(content)
+        if len(received) >= 2:
+            got_two.set()
+
+    listener = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_b,
+        handlers=Handlers(on_message=on_message),
+    )
+    await listener.start()
+    try:
+        await listener.wait_until_logged_in(timeout=5.0)
+        async with Client(url=axochat_server.url, token=jwt_user_a).session() as s:
+            await s.send_message("first")
+            await s.send_message("second")
+        await asyncio.wait_for(got_two.wait(), timeout=5.0)
+    finally:
+        await listener.stop()
+
+    assert "first" in received
+    assert "second" in received
+
+
+async def test_session_requires_token(axochat_server: AxochatServer) -> None:
+    client = Client(url=axochat_server.url)
+    with pytest.raises(MissingTokenError):
+        async with client.session():
+            pass
+
+
+async def test_session_send_private_message(
+    axochat_server: AxochatServer, jwt_user_a: str, jwt_user_b: str
+) -> None:
+    """Session.send_private_message reaches the recipient's PrivateMessage handler."""
+    got = asyncio.Event()
+    captured: list[tuple[AuthorInfo, str]] = []
+
+    async def on_private(author: AuthorInfo, content: str) -> None:
+        captured.append((author, content))
+        got.set()
+
+    receiver = PersistentClient(
+        url=axochat_server.url,
+        token=jwt_user_b,
+        allow_messages=True,
+        handlers=Handlers(on_private_message=on_private),
+    )
+    await receiver.start()
+    try:
+        await receiver.wait_until_logged_in(timeout=5.0)
+        async with Client(url=axochat_server.url, token=jwt_user_a).session() as s:
+            await s.send_private_message("user_b", "session-pm")
+        await asyncio.wait_for(got.wait(), timeout=5.0)
+    finally:
+        await receiver.stop()
+
+    assert captured[0][1] == "session-pm"

@@ -27,7 +27,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-from .client import Client, ProgressCallback
+from .client import Client, ProgressCallback, Session
 from .exceptions import (
     LiquidChatError,
     LoginFailedError,
@@ -86,6 +86,7 @@ __all__ = [
     "ProgressCallback",
     "ProtocolError",
     "ReconnectPolicy",
+    "Session",
     "Success",
     "SuccessReason",
     "UserCount",
