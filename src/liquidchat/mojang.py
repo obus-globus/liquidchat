@@ -39,11 +39,11 @@ listed under the ``mojang`` extra in ``pyproject.toml``.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from types import TracebackType
 from typing import Final, Self
 
 import httpx
+from pydantic import BaseModel, ConfigDict
 
 from .exceptions import LiquidChatError
 
@@ -100,9 +100,10 @@ def format_uuid(uuid: str) -> str:
     return f"{plain[0:8]}-{plain[8:12]}-{plain[12:16]}-{plain[16:20]}-{plain[20:32]}"
 
 
-@dataclass(frozen=True, slots=True)
-class MojangProfile:
+class MojangProfile(BaseModel):
     """A resolved Minecraft profile."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     uuid: str
     """Canonical hyphenated UUID (e.g. ``069a79f4-44e9-4726-a5be-fca90e38aaf5``)."""
