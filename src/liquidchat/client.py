@@ -154,7 +154,7 @@ class Client:
     the method returns ``False``.
     """
 
-    PROGRESS_UPDATE_FREQUENCY = 5
+    PROGRESS_UPDATE_FREQUENCY: int = 5
 
     def __init__(
         self,

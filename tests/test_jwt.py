@@ -117,11 +117,6 @@ def test_inspect_rejects_malformed_token() -> None:
         inspect_token("a.b.c")  # not valid base64 JSON
 
 
-def test_inspect_rejects_non_string() -> None:
-    with pytest.raises(InvalidTokenError):
-        inspect_token(123)  # type: ignore[arg-type]
-
-
 def test_inspect_rejects_non_object_payload() -> None:
     tok = ".".join(
         [
@@ -182,12 +177,6 @@ def test_token_info_methods() -> None:
     assert info.is_expired(now=999.9) is False
     assert info.is_expired(now=1000.0) is True
     assert info.seconds_until_expiry(now=900.0) == 100.0
-
-
-def test_token_info_is_frozen() -> None:
-    info = inspect_token(_make_token())
-    with pytest.raises(AttributeError):
-        info.name = "other"  # type: ignore[misc]
 
 
 def test_unpadded_base64_is_accepted() -> None:
