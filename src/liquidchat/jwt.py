@@ -34,8 +34,9 @@ import base64
 import binascii
 import json
 import time
-from dataclasses import dataclass
 from typing import Any, Final, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from .exceptions import LiquidChatError
 
@@ -62,9 +63,10 @@ class InvalidTokenError(LiquidChatError):
 _REQUIRED_USER_FIELDS: Final = ("name", "uuid")
 
 
-@dataclass(frozen=True, slots=True)
-class TokenInfo:
+class TokenInfo(BaseModel):
     """Decoded JWT payload (signature NOT verified)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     name: str
     """Minecraft username embedded in ``claims.user.name``."""

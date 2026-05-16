@@ -5,13 +5,14 @@ The server uses tiny tagged JSON envelopes::
     {"m": "<message-type>", "c": {<payload>}}
 
 Some message types (``RequestMojangInfo``, ``RequestJWT``, ``RequestUserCount``)
-have no ``c`` body. :func:`parse_message` returns a tagged-union dataclass.
+have no ``c`` body. :func:`parse_message` returns a tagged-union model.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .exceptions import ProtocolError
 
@@ -19,46 +20,44 @@ SuccessReason = Literal["Login", "Ban", "Unban"]
 """Server-defined ``Success.reason`` values."""
 
 
-@dataclass(slots=True, frozen=True)
-class AuthorInfo:
+class _Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class AuthorInfo(_Frozen):
     """Identity of a chat message author."""
 
     name: str
     uuid: str
 
 
-@dataclass(slots=True, frozen=True)
-class MessageContent:
+class MessageContent(_Frozen):
     """Body of a ``Message`` or ``PrivateMessage``."""
 
     author_info: AuthorInfo
     content: str
 
 
-@dataclass(slots=True, frozen=True)
-class UserCount:
+class UserCount(_Frozen):
     """Body of a ``UserCount`` message."""
 
     connections: int
     logged_in: int
 
 
-@dataclass(slots=True, frozen=True)
-class MojangInfo:
+class MojangInfo(_Frozen):
     """Body of a ``MojangInfo`` message — a server-issued challenge hash."""
 
     session_hash: str
 
 
-@dataclass(slots=True, frozen=True)
-class NewJWT:
+class NewJWT(_Frozen):
     """Body of a ``NewJWT`` message."""
 
     token: str
 
 
-@dataclass(slots=True, frozen=True)
-class Error:
+class Error(_Frozen):
     """Body of an ``Error`` message.
 
     The server's ``ClientError`` is a Rust enum serialized by serde:
@@ -73,8 +72,7 @@ class Error:
     message: str | dict[str, Any]
 
 
-@dataclass(slots=True, frozen=True)
-class Success:
+class Success(_Frozen):
     """Body of a ``Success`` message."""
 
     reason: SuccessReason
@@ -83,8 +81,7 @@ class Success:
 MessageBody = MessageContent | UserCount | MojangInfo | NewJWT | Error | Success | None
 
 
-@dataclass(slots=True, frozen=True)
-class LiquidChatMessage:
+class LiquidChatMessage(_Frozen):
     """A parsed ``{"m": ..., "c": ...}`` envelope."""
 
     m: str
@@ -92,6 +89,16 @@ class LiquidChatMessage:
 
 
 _REQUEST_TYPES = frozenset({"RequestMojangInfo", "RequestJWT", "RequestUserCount"})
+
+_BODY_MODELS: dict[str, type[BaseModel]] = {
+    "Message": MessageContent,
+    "PrivateMessage": MessageContent,
+    "UserCount": UserCount,
+    "MojangInfo": MojangInfo,
+    "NewJWT": NewJWT,
+    "Success": Success,
+    "Error": Error,
+}
 
 
 def parse_message(data: dict[str, Any]) -> LiquidChatMessage:
@@ -102,34 +109,21 @@ def parse_message(data: dict[str, Any]) -> LiquidChatMessage:
     if "m" not in data:
         raise ProtocolError(f"missing 'm' field: {data!r}")
     msg_type = data["m"]
-    payload = data.get("c")
 
     if msg_type in _REQUEST_TYPES:
         return LiquidChatMessage(m=msg_type, c=None)
+
+    payload = data.get("c")
     if payload is None:
         raise ProtocolError(f"missing 'c' field for {msg_type!r}")
 
+    model = _BODY_MODELS.get(msg_type)
+    if model is None:
+        raise ProtocolError(f"unknown message type: {msg_type!r}")
+
     try:
-        body: MessageBody
-        match msg_type:
-            case "Message" | "PrivateMessage":
-                body = MessageContent(
-                    author_info=AuthorInfo(**payload["author_info"]),
-                    content=payload["content"],
-                )
-            case "UserCount":
-                body = UserCount(**payload)
-            case "MojangInfo":
-                body = MojangInfo(**payload)
-            case "NewJWT":
-                body = NewJWT(**payload)
-            case "Success":
-                body = Success(**payload)
-            case "Error":
-                body = Error(**payload)
-            case _:
-                raise ProtocolError(f"unknown message type: {msg_type!r}")
-    except (KeyError, TypeError) as e:
+        body = cast(MessageBody, model.model_validate(payload))
+    except ValidationError as e:
         raise ProtocolError(f"malformed {msg_type!r}: {e}") from e
 
     return LiquidChatMessage(m=msg_type, c=body)

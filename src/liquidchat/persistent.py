@@ -8,6 +8,7 @@ import logging
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Any, Literal
 
 import websockets
@@ -28,11 +29,11 @@ from .protocol import DEFAULT_WS_URL, build_ssl_context, decode, encode
 logger = logging.getLogger(__name__)
 
 
-MessageHandler = Callable[[AuthorInfo, str], Awaitable[Any]]
-PrivateMessageHandler = Callable[[AuthorInfo, str], Awaitable[Any]]
-UserCountHandler = Callable[[int, int], Awaitable[Any]]
-ErrorHandler = Callable[[str | dict[str, Any]], Awaitable[Any]]
-LifecycleHandler = Callable[[], Awaitable[Any]]
+MessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
+PrivateMessageHandler = Callable[[AuthorInfo, str], Awaitable[object]]
+UserCountHandler = Callable[[int, int], Awaitable[object]]
+ErrorHandler = Callable[[str | dict[str, Any]], Awaitable[object]]
+LifecycleHandler = Callable[[], Awaitable[object]]
 
 
 @dataclass
@@ -221,7 +222,7 @@ class PersistentClient:
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        tb: Any,
+        tb: TracebackType | None,
     ) -> None:
         await self.stop()
 
@@ -502,7 +503,7 @@ class PersistentClient:
             await _safe_call(h.on_error(msg.c.message))
 
 
-async def _safe_call(awaitable: Awaitable[Any]) -> None:
+async def _safe_call(awaitable: Awaitable[object]) -> None:
     """Run a user-supplied coroutine, swallowing/logging any exception."""
     try:
         await awaitable
