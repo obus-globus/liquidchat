@@ -17,7 +17,7 @@ from liquidchat import (
 )
 from tests.conftest import AxochatServer
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
 # ---------- Client ----------

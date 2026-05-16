@@ -1,8 +1,26 @@
 # liquidchat
 
+[![CI](https://github.com/clawdbot-silly-waddle/liquidchat/actions/workflows/ci.yml/badge.svg)](https://github.com/clawdbot-silly-waddle/liquidchat/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Typed](https://img.shields.io/badge/typed-PEP%20561-brightgreen.svg)](https://peps.python.org/pep-0561/)
+
+> ⚠️ **Project status: alpha.** API surface may change without warning until 1.0.
+
 A modern, typed Python client for the **LiquidChat** websocket protocol used by
 `chat.liquidbounce.net`. Ported and modernized from the original
 `olotldiscordbot/liquidchat/` package.
+
+## Installation
+
+```bash
+# From source (private repo for now)
+git clone git@github.com:clawdbot-silly-waddle/liquidchat.git
+cd liquidchat
+uv sync          # or: pip install -e '.[dev]'
+```
+
+Requires **Python 3.13+**.
 
 ## Two clients
 
