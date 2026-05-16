@@ -116,7 +116,7 @@ def decode_unverified_payload(token: str) -> tuple[dict[str, Any], dict[str, Any
     try:
         header_raw: Any = json.loads(_b64url_decode(parts[0]))
         payload_raw: Any = json.loads(_b64url_decode(parts[1]))
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise InvalidTokenError(f"segment is not valid JSON: {e}") from e
     if not isinstance(header_raw, dict) or not isinstance(payload_raw, dict):
         raise InvalidTokenError("header / payload must decode to JSON objects")

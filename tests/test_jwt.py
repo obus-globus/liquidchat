@@ -200,3 +200,13 @@ def test_inspect_real_axochat_token(jwt_user_a: str) -> None:
     assert info.algorithm == "HS256"
     assert not info.is_expired()
     assert info.seconds_until_expiry() > 24 * 3600  # 30d validity in conftest
+
+
+def test_inspect_rejects_non_utf8_payload() -> None:
+    # bytes that are valid base64url but not valid UTF-8
+    header = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    bad_payload = _b64url(b"\x80\x81\x82\x83")  # not valid UTF-8
+    sig = _b64url(b"signature")
+    token = f"{header}.{bad_payload}.{sig}"
+    with pytest.raises(InvalidTokenError):
+        decode_unverified_payload(token)

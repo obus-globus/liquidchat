@@ -1,8 +1,8 @@
 """Moderation examples — batch bans and automod.
 
 These require a JWT whose user is listed in the axochat server's
-moderators file. See ``MODERATION.md`` in the README for the contract
-around ban/unban return values.
+moderators file. See ``examples/README.md`` for the contract around
+ban/unban return values.
 """
 
 from __future__ import annotations

@@ -80,3 +80,35 @@ def test_missing_body_raises() -> None:
 def test_malformed_payload_raises() -> None:
     with pytest.raises(ProtocolError):
         parse_message({"m": "UserCount", "c": {"connections": 1}})  # missing logged_in
+
+
+def test_non_dict_envelope_raises() -> None:
+    # malicious / buggy server sends a JSON primitive instead of an object
+    for bad in (123, None, True, "string", [1, 2, 3]):
+        with pytest.raises(ProtocolError):
+            parse_message(bad)  # type: ignore[arg-type]
+
+
+def test_unhashable_m_raises() -> None:
+    # 'm' value isn't a string — must not crash with TypeError
+    with pytest.raises(ProtocolError):
+        parse_message({"m": ["Message"], "c": {}})
+    with pytest.raises(ProtocolError):
+        parse_message({"m": {"nested": True}, "c": {}})
+    with pytest.raises(ProtocolError):
+        parse_message({"m": 42, "c": {}})
+
+
+def test_decode_non_dict_json_raises() -> None:
+    # decode() must reject JSON that parses to a primitive
+    with pytest.raises(ProtocolError):
+        decode("123")
+    with pytest.raises(ProtocolError):
+        decode("null")
+    with pytest.raises(ProtocolError):
+        decode('"hello"')
+
+
+def test_decode_invalid_json_raises() -> None:
+    with pytest.raises(ProtocolError):
+        decode("not json at all{")

@@ -117,8 +117,8 @@ argument.
 
 ## Differences from the original
 
-- Strict typing (mypy `strict = true`).
-- Dataclass-based, slotted, frozen models.
+- Strict typing (basedpyright `strict` mode on src/).
+- Pydantic v2 frozen models for the wire format.
 - Tagged-union parsing via `parse_message()` returning `LiquidChatMessage`.
 - No silent `ssl.CERT_NONE` — verified TLS by default; opt-in `insecure_ssl=True`.
 - Singletons removed; instantiate clients explicitly.
@@ -131,7 +131,7 @@ argument.
 uv sync
 uv run pytest
 uv run ruff check .
-uv run mypy src/liquidchat
+uv run basedpyright
 ```
 
 ## Username / UUID lookup

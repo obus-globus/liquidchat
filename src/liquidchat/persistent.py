@@ -293,13 +293,14 @@ class PersistentClient:
         if ws is None or not self._logged_in.is_set():
             raise RuntimeError("not connected / not logged in")
         async with self._action_lock:
-            if self._ws is None:
+            ws = self._ws
+            if ws is None:
                 raise RuntimeError("not connected")
             loop = asyncio.get_running_loop()
             future: asyncio.Future[str] = loop.create_future()
             self._pending_jwt = future
             try:
-                await self._ws.send(encode("RequestJWT"))
+                await ws.send(encode("RequestJWT"))
                 return await asyncio.wait_for(future, timeout=timeout)
             except ConnectionClosed as e:
                 raise RuntimeError("connection closed before NewJWT") from e
@@ -317,13 +318,14 @@ class PersistentClient:
             logger.warning("liquidchat not connected; %s for %s dropped", action, uuid)
             return False
         async with self._action_lock:
-            if self._ws is None:
+            ws = self._ws
+            if ws is None:
                 return False
             loop = asyncio.get_running_loop()
             future: asyncio.Future[bool] = loop.create_future()
             self._pending_action = _PendingAction(expected=expected, future=future)
             try:
-                await self._ws.send(encode(action, {"user": uuid}))
+                await ws.send(encode(action, {"user": uuid}))
                 try:
                     return await asyncio.wait_for(future, timeout=self._ACTION_RESPONSE_TIMEOUT)
                 except TimeoutError:
