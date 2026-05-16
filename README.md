@@ -144,6 +144,39 @@ Returns `None` on a clean "not found" (HTTP 404 / 204). Other HTTP
 failures raise `MojangHTTPError`; network errors propagate as
 `httpx.RequestError`.
 
+## Token validation
+
+Two flavours, depending on what you need:
+
+**Server-side validation** (`Client.validate` / `Client.validate_strict`)
+opens a websocket and performs the real `LoginJWT` handshake. The
+server checks signature, expiry, and claim structure — that's *real*
+validation. `validate` returns `False` on either rejected creds or
+server-unreachable; `validate_strict` distinguishes the two.
+
+**Offline validation** (`liquidchat.jwt`) parses the JWT locally — no
+network round-trip, but it cannot verify the signature (we don't have
+axochat's signing key). Use this as a cheap preflight check, e.g. to
+refresh proactively before opening the socket:
+
+```python
+from liquidchat.jwt import inspect_token, is_token_expired, InvalidTokenError
+
+try:
+    info = inspect_token(jwt)
+    print(info.name, info.uuid, info.expires_at)
+except InvalidTokenError as e:
+    print("malformed token:", e)
+
+if is_token_expired(jwt, leeway=30.0):
+    jwt = await refresh_token()
+```
+
+Offline checks: well-formedness (3 base64url segments), header `alg`
+present and not `none`, payload decodes to a JSON object containing
+`exp` (numeric) and `user.{name, uuid}` (non-empty strings), and the
+configurable `exp` clock check.
+
 ## More examples
 
 See [`examples.py`](./examples.py) for runnable snippets covering every
