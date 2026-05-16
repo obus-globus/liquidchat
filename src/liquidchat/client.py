@@ -70,9 +70,11 @@ async def _wait_for(
             return msg
 
 
-async def _login(ws: websockets.ClientConnection, token: str, *, allow_messages: bool) -> None:
+async def _login(
+    ws: websockets.ClientConnection, token: str, *, accept_private_messages: bool
+) -> None:
     """Send a ``LoginJWT`` and wait for the server's ``Success``/``Error``."""
-    await ws.send(encode("LoginJWT", {"token": token, "allow_messages": allow_messages}))
+    await ws.send(encode("LoginJWT", {"token": token, "allow_messages": accept_private_messages}))
     msg = await _wait_for(
         ws,
         lambda m: isinstance(m.c, (Success, Error)),
@@ -197,7 +199,7 @@ class Client:
         tok = self._resolve_token(token)
         try:
             async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-                await _login(ws, tok, allow_messages=False)
+                await _login(ws, tok, accept_private_messages=False)
             return True
         except LoginFailedError as e:
             logger.info("liquidchat token validation: credentials rejected: %s", e)
@@ -207,19 +209,19 @@ class Client:
 
     async def send_message(self, content: str) -> None:
         """Send a single chat message. Raises on failure."""
-        async with self.session(allow_messages=True) as s:
+        async with self.session(accept_private_messages=False) as s:
             await s.send_message(content)
 
     # ---------- moderation ----------
 
     async def ban_user(self, uuid: str) -> bool:
         """Ban a single user. Returns whether the server confirmed the action."""
-        async with self.session(allow_messages=False) as s:
+        async with self.session(accept_private_messages=False) as s:
             return await s.ban_user(uuid)
 
     async def unban_user(self, uuid: str) -> bool:
         """Unban a single user. Returns whether the server confirmed the action."""
-        async with self.session(allow_messages=False) as s:
+        async with self.session(accept_private_messages=False) as s:
             return await s.unban_user(uuid)
 
     async def ban_users_batch(
@@ -232,7 +234,7 @@ class Client:
         results: dict[str, bool] = {}
         try:
             try:
-                async with self.session(allow_messages=False) as s:
+                async with self.session(accept_private_messages=False) as s:
                     for idx, uuid in enumerate(uuids, 1):
                         try:
                             results[uuid] = await s.ban_user(uuid)
@@ -258,7 +260,7 @@ class Client:
     # ---------- chained / multi-op sessions ----------
 
     @asynccontextmanager
-    async def session(self, *, allow_messages: bool = True) -> AsyncIterator[Session]:
+    async def session(self, *, accept_private_messages: bool = False) -> AsyncIterator[Session]:
         """Open one websocket and run multiple actions on it.
 
         Example::
@@ -268,12 +270,14 @@ class Client:
                 await s.ban_user("<uuid>")
                 await s.unban_user("<other-uuid>")
 
-        Set ``allow_messages=False`` if the session is moderation-only
-        (saves having the server stream chat events you'll discard).
+        The ``accept_private_messages`` flag controls whether the server
+        will forward inbound private messages to this connection (defaults
+        to ``False`` since one-shot sessions rarely consume them). Set it
+        to ``True`` if you plan to read responses on the session.
         """
         tok = self._resolve_token(None)
         async with _open(self._url, insecure_ssl=self._insecure_ssl) as ws:
-            await _login(ws, tok, allow_messages=allow_messages)
+            await _login(ws, tok, accept_private_messages=accept_private_messages)
             yield Session(ws)
 
     # ---------- internals ----------
