@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 from types import TracebackType
 from typing import Final, Self
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -185,7 +186,7 @@ class MojangClient:
         """Full profile lookup by name. Returns ``None`` on 404."""
         if not _USERNAME_RE.match(username):
             raise ValueError(f"not a valid Minecraft username: {username!r}")
-        url = f"{self._profile_url}/users/profiles/minecraft/{username}"
+        url = f"{self._profile_url}/users/profiles/minecraft/{quote(username, safe='')}"
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):
             return None
@@ -200,7 +201,7 @@ class MojangClient:
     async def lookup_by_uuid(self, uuid: str) -> MojangProfile | None:
         """Full profile lookup by UUID. Returns ``None`` on 204/404."""
         undashed = strip_uuid(uuid)
-        url = f"{self._session_url}/session/minecraft/profile/{undashed}"
+        url = f"{self._session_url}/session/minecraft/profile/{quote(undashed, safe='')}"
         resp = await self._client.get(url)
         if resp.status_code in (204, 404):
             return None

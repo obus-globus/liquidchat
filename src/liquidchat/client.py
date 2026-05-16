@@ -109,7 +109,7 @@ async def _send_action(
     return isinstance(msg.c, Success) and msg.c.reason == expected_reason
 
 
-ProgressCallback = Callable[[int, int, dict[str, bool]], Awaitable[None]]
+type ProgressCallback = Callable[[int, int, dict[str, bool]], Awaitable[None]]
 
 
 class Session:
