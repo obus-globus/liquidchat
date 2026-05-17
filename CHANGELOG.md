@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-05-17
+
+### Fixed
+
+- ``--client-id liquidlauncher`` / ``--client-id liquidbounce`` with
+  ``--flow browser`` now uses the redirect URI registered on their Azure
+  app (``http://localhost:*/login``) instead of our default
+  ``http://127.0.0.1:*/callback`` — previously Microsoft rejected the
+  authorize request with ``invalid_request: ... redirect_uri ... not valid``.
+  Powered by ``mcapi_auth.resolve_browser_redirect()`` (new in 0.7.2).
+
 ## [0.8.2] - 2026-05-17
 
 ### Added
