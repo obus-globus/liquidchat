@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-17
+
+### Changed (breaking)
+
+- Credentials are now organized by **profile**. Each Minecraft account
+  gets its own directory under ``$LIQUIDCHAT_HOME/profiles/<name>/``
+  (default ``~/.config/liquidchat/profiles/<name>/``) containing
+  ``jwt`` and ``refresh_token.json``. A ``$LIQUIDCHAT_HOME/default``
+  pointer file tracks the active profile.
+- Old single-file locations (``$LIQUIDCHAT_TOKEN_FILE``,
+  ``~/.config/liquidchat/token``, and the mcapi-auth XDG state path)
+  are no longer used or read. There is no automatic migration —
+  re-run ``liquidchat login`` to populate the new layout.
+
+### Added
+
+- Global ``--account NAME`` flag on every subcommand that consumes
+  the JWT (``chat``, ``send``, ``ban``, ``unban``, ``token info /
+  validate / refresh / path / clear``). Profile resolution order:
+  flag → ``$LIQUIDCHAT_ACCOUNT`` env → ``default`` pointer file.
+- ``liquidchat account list / use NAME / remove NAME`` to manage
+  profiles. ``list`` shows JWT and refresh-token presence per
+  profile and marks the default.
+- ``liquidchat login --account NAME`` chooses the profile name
+  up front. When omitted, the Minecraft username returned by the
+  MSA flow is used as the profile name; the refresh token is staged
+  to a temp file and moved into place once the name is known.
+- First profile created in a fresh home dir auto-promotes to
+  default; pass ``--set-default`` / ``--no-set-default`` to override.
+- ``liquidchat token refresh`` now writes the new JWT back to the
+  profile by default (``--no-save`` to print to stdout instead).
+
 ## [0.5.1] - 2026-05-17
 
 ### Added

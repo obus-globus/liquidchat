@@ -222,22 +222,49 @@ $ liquidchat --help
 Usage: liquidchat COMMAND
 
 Commands:
-  ban       Ban a player by UUID or username.
-  chat      Open an interactive LiquidChat session.
+  account   Manage liquidchat credential profiles.
+  ban       Ban a player by UUID or username (via the active profile's JWT).
+  chat      Open an interactive LiquidChat session for a given profile.
+  login     Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
   mojang    Public Mojang profile lookups.
   send      Send a single chat message and exit.
   token     JWT inspection, validation, and rotation.
-  unban     Unban a player by UUID or username.
+  unban     Unban a player by UUID or username (via the active profile's JWT).
 ```
 
-### Token resolution
+### Profiles & token resolution
 
-Every subcommand accepts `--token <jwt>`. If you don't pass one
-explicitly the CLI looks in this order:
+Credentials are organised by **profile** — one directory per Minecraft
+account under `$LIQUIDCHAT_HOME` (default `~/.config/liquidchat`):
 
-1. `LIQUIDCHAT_TOKEN` env var
-2. The file at `$LIQUIDCHAT_TOKEN_FILE` (default
-   `~/.config/liquidchat/token`)
+```
+~/.config/liquidchat/
+├── default                     # plain-text: name of the default profile
+└── profiles/
+    ├── hanimetv/
+    │   ├── jwt                 # liquidchat JWT (chmod 0600)
+    │   └── refresh_token.json  # MSA refresh token (mcapi-auth)
+    └── alt-account/
+        └── ...
+```
+
+Every subcommand that uses the JWT (`chat`, `send`, `ban`, `unban`,
+`token …`) accepts `--account NAME` and `--token <jwt>`. Resolution
+order:
+
+1. `--token <jwt>` (explicit).
+2. `LIQUIDCHAT_TOKEN` env var.
+3. `profiles/<name>/jwt` for the selected profile, where `<name>` is
+   chosen by: `--account` → `LIQUIDCHAT_ACCOUNT` env → `default`
+   pointer file.
+
+Manage profiles with:
+
+```bash
+liquidchat account list                # show profiles + default marker
+liquidchat account use alt-account     # change the default
+liquidchat account remove old-account  # delete a profile
+```
 
 > **Heads up:** the official `chat.liquidbounce.net` deployment has
 > been serving an expired TLS certificate since 2020. Every subcommand
@@ -245,41 +272,38 @@ explicitly the CLI looks in this order:
 > TLS verification) so the public server works out of the box. Pass
 > `--no-insecure` against a deployment with a valid cert.
 
-So a typical setup is:
-
-```bash
-mkdir -p ~/.config/liquidchat
-echo "eyJhbGc..." > ~/.config/liquidchat/token
-chmod 600 ~/.config/liquidchat/token
-liquidchat token info   # uses the file automatically
-```
-
 ### Logging in (no token? start here)
 
 ```bash
-liquidchat login
+liquidchat login                           # profile name = your MC username
+liquidchat login --account alt-account     # explicit profile name
 ```
 
 Runs the full Microsoft → Mojang → AxoChat auth chain end-to-end:
 
-1. Opens the websocket and asks for a `MojangInfo` challenge.
-2. Walks you through MSA device-code authentication via `mcapi-auth`
-   (first run only — the refresh token is cached at the standard
-   XDG state path, so subsequent logins are silent).
-3. Calls `sessionserver.mojang.com/session/minecraft/join` to prove
-   account ownership.
-4. Sends `LoginMojang` to the chat server, then `RequestJWT`, then
-   writes the resulting JWT to `~/.config/liquidchat/token` (or
-   `$LIQUIDCHAT_TOKEN_FILE` / `--out PATH`).
+1. Walks you through MSA device-code authentication via `mcapi-auth`
+   (the refresh token is staged to a temp file when `--account` is
+   omitted, then moved into `profiles/<username>/refresh_token.json`
+   once the MSA flow reveals the username).
+2. Opens the websocket and runs `RequestMojangInfo` →
+   `sessionserver join` → `LoginMojang` → `RequestJWT` back-to-back.
+3. Writes the resulting JWT to `profiles/<name>/jwt` and promotes
+   the profile to default if no default exists yet (override with
+   `--set-default` / `--no-set-default`).
+
+Pass `--no-remember` to skip persisting the MSA refresh token (a
+one-shot, fully ephemeral login).
 
 After that, every other subcommand picks the token up automatically.
 `liquidchat token refresh` rotates it on the same connection without
-re-running the MSA flow.
+re-running the MSA flow (and writes the new JWT back to the profile
+by default; pass `--no-save` to print it instead).
 
 ### Interactive chat
 
 ```bash
-liquidchat chat
+liquidchat chat                       # uses the default profile
+liquidchat chat --account alt-account # pick a specific profile
 ```
 
 Opens a `PersistentClient`, prints inbound chat (with timestamps +
@@ -307,7 +331,8 @@ liquidchat send "deploy went out, watching graphs"
 liquidchat token info             # pretty table: name / uuid / exp / status
 liquidchat token info --raw       # raw header + payload JSON
 liquidchat token validate         # round-trip with the server
-liquidchat token refresh > ~/.config/liquidchat/token   # rotate
+liquidchat token refresh                    # rotate and write back to profile
+liquidchat token refresh --no-save > /tmp/new.jwt
 liquidchat ban CheaterMcCheatface
 liquidchat unban 069a79f444e94726a5befca90e38aaf5
 liquidchat mojang uuid Notch      # 069a79f4-44e9-4726-a5be-fca90e38aaf5

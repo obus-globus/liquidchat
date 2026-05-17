@@ -219,30 +219,26 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float |
 
 def chat(
     *,
+    account: str | None = None,
     token: str | None = None,
     insecure: bool = True,
     heartbeat: float | None = None,
 ) -> None:
-    """Open an interactive LiquidChat session.
+    """Open an interactive LiquidChat session for a given profile.
 
-    Connects with :class:`PersistentClient`, then runs a
-    ``prompt_toolkit`` REPL until you type ``/quit`` (or hit Ctrl-D).
-    Anything that's not a slash-command is sent as a public chat
-    message.
+    The JWT is loaded from ``--token`` → ``$LIQUIDCHAT_TOKEN`` →
+    ``profiles/<account>/jwt`` (where ``<account>`` falls back to
+    ``$LIQUIDCHAT_ACCOUNT`` → the default profile from
+    ``$LIQUIDCHAT_HOME/default``).
 
-    ``--insecure`` (default on) skips TLS certificate verification.
-    The public ``chat.liquidbounce.net`` server has been running with
-    an expired Let's Encrypt cert for years, so in practice this is
-    required against the official deployment — pass
+    ``--insecure`` (default on) skips TLS verification — the public
+    ``chat.liquidbounce.net`` cert has been expired for years. Pass
     ``--no-insecure`` against a private deployment with a valid cert.
 
-    ``--heartbeat`` controls the application-level keepalive interval
-    in seconds. Off by default. Set to a positive value (e.g. ``60``)
-    if you're behind a NAT that idle-drops the TCP flow. The
-    heartbeat sends ``RequestMojangInfo``, which is the cheapest
-    unauthenticated server-side round-trip.
+    ``--heartbeat <s>`` opt-in application-level keepalive (sends
+    ``RequestMojangInfo`` every <s> seconds). Off by default.
     """
-    jwt = resolve_token(token)
+    jwt = resolve_token(token, account)
     hb: float | None = heartbeat if heartbeat and heartbeat > 0 else None
 
     with contextlib.suppress(KeyboardInterrupt):
