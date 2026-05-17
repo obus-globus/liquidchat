@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --client-id NAME_OR_ID`` selects which Microsoft
+  OAuth client_id to authenticate as. Accepts an alias (resolved via
+  ``mcapi_auth.KNOWN_CLIENT_IDS``) or a literal client_id. Default is
+  ``"prism"``. Available aliases:
+  * v2 (Azure-AD GUID): ``prism`` (default), ``edu``, ``office365``.
+  * v1 (Live-Connect compressed, MBI_SSL): ``java``, ``bedrock-win32``,
+    ``bedrock-android``, ``bedrock-ios``, ``bedrock-nintendo``,
+    ``bedrock-playstation``, ``xbox-app-ios``, ``xbox-gamepass-ios``.
+- v1/v2 dispatch is now automatic based on the resolved client_id
+  format. Passing a v1 client_id forces the OOB browser-paste-back
+  flow regardless of ``--flow``; v2 client_ids honour ``--flow``
+  (``device-code`` or ``browser``).
+
+### Changed
+
+- ``--flow browser-v1`` is now a back-compat alias that resolves to
+  ``--flow browser`` when paired with a v1 client_id (which is the
+  common case). Pass an explicit ``--client-id java`` to keep the
+  legacy ``00000000402b5328`` flow you used to get with
+  ``--flow browser-v1``.
+- Bumped ``mcapi-auth`` pin to ``>=0.7.0`` (introduces
+  ``KNOWN_CLIENT_IDS`` + the bedrock/edu/xbox-app client_id constants).
+
 ## [0.7.2] - 2026-05-17
 
 ### Fixed

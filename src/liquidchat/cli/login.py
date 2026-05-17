@@ -30,11 +30,14 @@ from typing import Literal
 
 import websockets
 from mcapi_auth import (
+    KNOWN_CLIENT_IDS,
     FileTokenStorage,
+    is_v1_client_id,
     join_server,
     login,
     login_via_browser,
     login_via_browser_v1,
+    resolve_client_id,
 )
 from mcapi_auth.auth.msa import DeviceCodePrompt
 
@@ -97,19 +100,43 @@ async def _run_login(
     insecure: bool,
     refresh_storage_path: Path | None,
     flow: FlowName,
+    client_id: str,
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
-    console.print(f"[dim]running Microsoft → Minecraft auth (flow={flow})...[/dim]")
+    is_v1 = is_v1_client_id(client_id)
+    console.print(
+        f"[dim]running Microsoft → Minecraft auth "
+        f"(flow={flow}, client_id={client_id}, v1={is_v1})...[/dim]"
+    )
     storage = FileTokenStorage(path=refresh_storage_path) if refresh_storage_path else None
-    if flow == "device-code":
-        session = await login(on_device_code=_on_device_code, storage=storage)
-    elif flow == "browser":
-        session = await login_via_browser(
+
+    if is_v1:
+        # v1 client_ids only work against login.live.com/oauth20_*.srf
+        # which doesn't support a device-code endpoint we talk to.
+        # Force the OOB browser flow.
+        if flow == "device-code":
+            console.print(
+                "[yellow]note:[/yellow] device-code is not supported for v1 "
+                f"client_id {client_id!r}; falling back to browser-v1."
+            )
+        session = await login_via_browser_v1(
+            client_id=client_id,
             storage=storage,
             open_browser=_announce_browser,
         )
-    elif flow == "browser-v1":
-        session = await login_via_browser_v1(
+    elif flow == "device-code":
+        session = await login(client_id=client_id, on_device_code=_on_device_code, storage=storage)
+    elif flow in ("browser", "browser-v1"):
+        # v2 client_id + browser → PKCE+localhost flow.
+        # browser-v1 with a v2 client_id is a contradiction; we silently
+        # use the v2 browser flow (the user picked a GUID).
+        if flow == "browser-v1":
+            console.print(
+                "[yellow]note:[/yellow] browser-v1 requested with a v2 (GUID) "
+                f"client_id {client_id!r}; using the v2 browser flow instead."
+            )
+        session = await login_via_browser(
+            client_id=client_id,
             storage=storage,
             open_browser=_announce_browser,
         )
@@ -173,6 +200,7 @@ def login_cmd(
     set_default: bool | None = None,
     print_token: bool = False,
     flow: FlowName = "device-code",
+    client_id: str = "prism",
 ) -> None:
     """Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
 
@@ -184,13 +212,31 @@ def login_cmd(
     Pick the MSA authentication flow with ``--flow``:
 
     * ``device-code`` (default): terminal-friendly device-code prompt
-      against the v2 endpoints with the Prism Launcher client_id.
-    * ``browser``: opens the browser to the same v2 endpoints with a
-      localhost-redirect listener (PKCE).
-    * ``browser-v1``: opens the browser to the legacy Live-Connect v1
-      ``login.live.com/oauth20_*.srf`` endpoints with the compressed
-      Minecraft Launcher client_id ``00000000402b5328``. No PKCE.
-      Useful when the v2 endpoints reject your account / tenant.
+      against the v2 endpoints. Only works with v2 (GUID) client_ids.
+    * ``browser``: opens the browser. For v2 client_ids uses
+      localhost-redirect + PKCE; for v1 client_ids uses the OOB
+      ``oauth20_desktop.srf`` paste-back UX.
+    * ``browser-v1`` (alias for ``browser`` when a v1 client_id is in
+      use). Kept for backwards compatibility — the auth library
+      auto-picks v1 vs v2 based on ``--client-id``.
+
+    Pick the Microsoft OAuth client_id with ``--client-id``. Accepts
+    either a friendly alias (see the table below) or a literal
+    client_id string. Default is ``prism``.
+
+    Aliases (from ``mcapi_auth.KNOWN_CLIENT_IDS``):
+
+    * v2 (Azure-AD GUID, ``XboxLive.signin`` scope):
+      ``prism`` (default), ``edu``, ``office365``.
+    * v1 (Live-Connect compressed, ``MBI_SSL`` scope):
+      ``java``, ``bedrock-win32``, ``bedrock-android``, ``bedrock-ios``,
+      ``bedrock-nintendo``, ``bedrock-playstation``, ``xbox-app-ios``,
+      ``xbox-gamepass-ios``.
+
+    Picking a v1 client_id forces the OOB browser flow regardless of
+    ``--flow``. Note that Bedrock client_ids will still complete the
+    chain (XBL/XSTS/loginWithXbox) but only succeed for accounts where
+    the Bedrock title is entitled.
 
     The first profile created in a fresh home dir is auto-promoted to
     the default; subsequent logins leave the default alone unless
@@ -208,9 +254,16 @@ def login_cmd(
             default only if there isn't one yet. ``True`` forces it,
             ``False`` leaves the existing default alone.
         print_token: Also echo the JWT to stdout.
-        flow: MSA flow to use — ``"device-code"`` (default),
-            ``"browser"``, or ``"browser-v1"``.
+        flow: MSA flow to use. See above.
+        client_id: Microsoft OAuth client_id (alias or literal).
+            Default ``"prism"``.
     """
+    resolved_client_id = resolve_client_id(client_id)
+    if resolved_client_id == client_id and client_id.lower() not in KNOWN_CLIENT_IDS:
+        # Passed-through raw client_id — make sure it looks plausible.
+        console.print(
+            f"[dim]using literal client_id {resolved_client_id!r} (no matching alias)[/dim]"
+        )
     # If the caller pre-picked --account, write refresh straight into
     # the final destination. Otherwise stage in a temp path and rename
     # after we learn the Minecraft username.
@@ -234,6 +287,7 @@ def login_cmd(
                 insecure=insecure,
                 refresh_storage_path=refresh_path,
                 flow=flow,
+                client_id=resolved_client_id,
             ),
         )
     except LoginFailedError as exc:

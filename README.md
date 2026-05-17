@@ -277,21 +277,24 @@ liquidchat account remove old-account  # delete a profile
 ```bash
 liquidchat login                           # profile name = your MC username
 liquidchat login --account alt-account     # explicit profile name
-liquidchat login --flow browser            # browser flow (v2 + PKCE)
-liquidchat login --flow browser-v1         # browser flow (legacy Live-Connect)
+liquidchat login --client-id prism         # default — v2 / Prism Launcher
+liquidchat login --client-id java          # legacy Java launcher (00000000402b5328)
+liquidchat login --client-id bedrock-nintendo  # Bedrock / Switch client_id
 ```
 
-The MSA flow can be picked with `--flow`:
+`--client-id` accepts either an alias (resolved via
+`mcapi_auth.KNOWN_CLIENT_IDS`) or a literal client_id. v1 (compressed
+Live-Connect) client_ids always use the OOB browser paste-back flow;
+v2 (Azure-AD GUID) client_ids honour `--flow {device-code, browser}`.
 
-- `device-code` (default): terminal-friendly device-code prompt
-  against the v2 endpoints with the Prism Launcher client_id.
-- `browser`: opens the browser to the same v2 endpoints with a
-  localhost-redirect listener (PKCE).
-- `browser-v1`: opens the browser to the legacy Live-Connect v1
-  `login.live.com/oauth20_*.srf` endpoints with the compressed
-  Minecraft Launcher client_id (`00000000402b5328`) and the `MBI_SSL`
-  scope. No PKCE. Useful when the v2 endpoints reject your account or
-  tenant.
+Available aliases:
+
+- **v2 / Azure-AD GUID** (XboxLive.signin scope):
+  `prism` (default), `edu`, `office365`.
+- **v1 / Live-Connect compressed** (MBI_SSL scope):
+  `java`, `bedrock-win32`, `bedrock-android`, `bedrock-ios`,
+  `bedrock-nintendo`, `bedrock-playstation`, `xbox-app-ios`,
+  `xbox-gamepass-ios`.
 
 Runs the full Microsoft → Mojang → AxoChat auth chain end-to-end:
 
