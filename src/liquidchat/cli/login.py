@@ -102,6 +102,8 @@ async def _run_login(
     refresh_storage_path: Path | None,
     flow: FlowName,
     client_id: str,
+    bind_host: str | None,
+    redirect_path: str | None,
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
     is_v1 = is_v1_client_id(client_id)
@@ -123,12 +125,23 @@ async def _run_login(
                 f"[yellow]note:[/yellow] --flow {flow} is not supported for v1 "
                 f"client_id {client_id!r}; using browser-v1 instead."
             )
+        if bind_host is not None or redirect_path is not None:
+            console.print(
+                "[yellow]note:[/yellow] --bind-host / --redirect-path are "
+                "ignored for v1 client_ids (the OOB paste-back flow doesn't "
+                "use a local listener)."
+            )
         session = await login_via_browser_v1(
             client_id=client_id,
             storage=storage,
             open_browser=_announce_browser,
         )
     elif flow == "device-code":
+        if bind_host is not None or redirect_path is not None:
+            console.print(
+                "[yellow]note:[/yellow] --bind-host / --redirect-path are "
+                "ignored for --flow device-code (no local listener)."
+            )
         session = await login(client_id=client_id, on_device_code=_on_device_code, storage=storage)
     elif flow in ("browser", "browser-v1"):
         # v2 client_id + browser → PKCE+localhost flow.
@@ -139,18 +152,24 @@ async def _run_login(
                 "[yellow]note:[/yellow] browser-v1 requested with a v2 (GUID) "
                 f"client_id {client_id!r}; using the v2 browser flow instead."
             )
-        # Some Azure apps register a non-default redirect — e.g.
-        # LiquidLauncher/LiquidBounce's app accepts http://localhost:*/login
-        # but not http://127.0.0.1:*/callback. Match the registered URI.
+        # Resolve the redirect URI in priority order:
+        # 1. explicit --bind-host / --redirect-path CLI overrides
+        # 2. per-client default from mcapi_auth.KNOWN_CLIENT_REDIRECTS
+        # 3. the library defaults (127.0.0.1, /callback)
         override = resolve_browser_redirect(client_id)
-        if override is not None:
-            bind_host, redirect_path = override
+        eff_bind_host = bind_host
+        eff_redirect_path = redirect_path
+        if eff_bind_host is None and override is not None:
+            eff_bind_host = override[0]
+        if eff_redirect_path is None and override is not None:
+            eff_redirect_path = override[1]
+        if eff_bind_host is not None or eff_redirect_path is not None:
             session = await login_via_browser(
                 client_id=client_id,
                 storage=storage,
                 open_browser=_announce_browser,
-                bind_host=bind_host,
-                redirect_path=redirect_path,
+                bind_host=eff_bind_host if eff_bind_host is not None else "127.0.0.1",
+                redirect_path=eff_redirect_path if eff_redirect_path is not None else "/callback",
             )
         else:
             session = await login_via_browser(
@@ -219,6 +238,8 @@ def login_cmd(
     print_token: bool = False,
     flow: FlowName = "device-code",
     client_id: str = "prism",
+    bind_host: str | None = None,
+    redirect_path: str | None = None,
 ) -> None:
     """Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
 
@@ -275,6 +296,13 @@ def login_cmd(
         flow: MSA flow to use. See above.
         client_id: Microsoft OAuth client_id (alias or literal).
             Default ``"prism"``.
+        bind_host: Override the local listener host for ``--flow browser``
+            (default: per-client from ``mcapi_auth.KNOWN_CLIENT_REDIRECTS``,
+            then ``127.0.0.1``). Must match the Azure app's registered
+            reply URI host.
+        redirect_path: Override the local listener path for ``--flow
+            browser`` (default: per-client, then ``/callback``). Must match
+            the Azure app's registered reply URI path.
     """
     resolved_client_id = resolve_client_id(client_id)
     if resolved_client_id == client_id and client_id.lower() not in KNOWN_CLIENT_IDS:
@@ -306,6 +334,8 @@ def login_cmd(
                 refresh_storage_path=refresh_path,
                 flow=flow,
                 client_id=resolved_client_id,
+                bind_host=bind_host,
+                redirect_path=redirect_path,
             ),
         )
     except LoginFailedError as exc:
