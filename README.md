@@ -287,15 +287,54 @@ liquidchat login --client-id bedrock-nintendo  # Bedrock / Switch client_id
 Live-Connect) client_ids always use the OOB browser paste-back flow;
 v2 (Azure-AD GUID) client_ids honour `--flow {device-code, browser}`.
 
+Auto-flow matrix (default `--flow device-code`):
+
+| client_id                                 | type | actual flow chosen          |
+|--|--|--|
+| `java`, `bedrock-*`, `xbox-*`             | v1   | `browser-v1` (OOB paste-back) |
+| `prism`, `liquidlauncher`/`liquidbounce`  | v2   | `device-code`               |
+| `edu`, `office365`                        | v2   | `device-code`               |
+
 Available aliases:
 
 - **v2 / Azure-AD GUID** (XboxLive.signin scope):
   `prism` (default), `edu`, `office365`, `liquidlauncher`, `liquidbounce`
   (the last two share Azure app `0add8caf-…`).
 - **v1 / Live-Connect compressed** (MBI_SSL scope):
-  `java`, `bedrock-win32`, `bedrock-android`, `bedrock-ios`,
-  `bedrock-nintendo`, `bedrock-playstation`, `xbox-app-ios`,
-  `xbox-gamepass-ios`.
+  `java`, `bedrock-win32` (currently broken upstream — returns
+  `invalid_request` even for the OOB redirect), `bedrock-android`,
+  `bedrock-ios`, `bedrock-nintendo`, `bedrock-playstation`,
+  `xbox-app-ios`, `xbox-gamepass-ios`.
+
+#### Flow override flags
+
+```bash
+liquidchat login --flow browser --client-id liquidlauncher   # v2 loopback
+liquidchat login --flow browser --client-id prism            # v2 loopback (root path)
+liquidchat login --flow device-code --client-id edu          # only flow that works for edu/office365
+```
+
+For v2 clients with a known loopback registration, the right
+`(bind_host, redirect_path)` pair is picked up automatically from
+`mcapi_auth.KNOWN_CLIENT_REDIRECTS` (currently: `prism →
+http://127.0.0.1:*/`, `liquidlauncher → http://localhost:*/login`).
+Override manually if you need to:
+
+```
+--bind-host    127.0.0.1 | localhost  (default: per-client or 127.0.0.1)
+--bind-port    <int>                  (default: 0 = OS-picked ephemeral)
+--redirect-path /callback             (default: per-client or /callback)
+--force-flow                          (escape hatch — disable auto v1/v2
+                                       dispatch and route --flow literally,
+                                       e.g. for testing exotic combinations)
+```
+
+`--flow browser` with `edu`/`office365` will print a warning
+(no loopback URL is registered on their Azure apps) and then fail
+at the authorize step — use `--flow device-code` instead. The same
+warning fires under `--force-flow --flow browser` against any v1
+client_id (since `login_via_browser` targets the v2 endpoint, which
+rejects v1 IDs as `AADSTS70001`).
 
 Runs the full Microsoft → Mojang → AxoChat auth chain end-to-end:
 
