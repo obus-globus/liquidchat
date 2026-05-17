@@ -7,18 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-05-17
+
+### Changed
+
+- Application-level heartbeat in ``PersistentClient`` now defaults to
+  **off**. Set ``heartbeat_interval=60.0`` (or pass
+  ``liquidchat chat --heartbeat 60``) to opt in.
+
 ## [0.4.5] - 2026-05-17
 
 ### Added
 
-- ``PersistentClient`` now sends an application-level heartbeat
-  (``RequestMojangInfo`` every 60 s by default). This protects long-
-  running chat sessions from being silently torn down by stateful
-  NATs / firewalls along the path, which is the most common cause of
-  unexpected ``ConnectionClosedError`` after the connection has been
-  idle. The interval is configurable via the new
-  ``heartbeat_interval`` constructor argument (set to ``None`` or
-  ``0`` to disable). ``liquidchat chat`` exposes it as
+- ``PersistentClient`` now supports an opt-in application-level
+  heartbeat (``RequestMojangInfo``). Useful for long-running sessions
+  behind stateful NATs / firewalls that idle-drop TCP conntrack.
+  Disabled by default. Enable via the new ``heartbeat_interval``
+  constructor argument (seconds, e.g. ``60.0``); ``None`` or ``0``
+  leaves it off. ``liquidchat chat`` exposes it as
   ``--heartbeat <seconds>``.
 
 ## [0.4.4] - 2026-05-17

@@ -100,7 +100,7 @@ class PersistentClient:
         insecure_ssl: bool = False,
         handlers: Handlers | None = None,
         reconnect: ReconnectPolicy | None = None,
-        heartbeat_interval: float | None = 60.0,
+        heartbeat_interval: float | None = None,
     ) -> None:
         self._url = url
         self._accept_private_messages = accept_private_messages
