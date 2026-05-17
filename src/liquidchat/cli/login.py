@@ -32,6 +32,7 @@ import websockets
 from mcapi_auth import (
     KNOWN_CLIENT_IDS,
     FileTokenStorage,
+    is_browser_unsupported,
     is_v1_client_id,
     join_server,
     login,
@@ -172,6 +173,13 @@ async def _run_login(
                 "[yellow]note:[/yellow] browser-v1 requested with a v2 (GUID) "
                 f"client_id {client_id!r}; using the v2 browser flow instead. "
                 f"Pass --force-flow to disable this auto-dispatch."
+            )
+        if is_browser_unsupported(client_id) and not force_flow:
+            console.print(
+                f"[yellow]warning:[/yellow] client_id {client_id!r} has no "
+                "loopback reply URL registered on its Azure-AD app; the "
+                "browser flow will fail at the authorize step. Use "
+                "--flow device-code instead, or pass --force-flow to try anyway."
             )
         # Resolve the redirect URI in priority order:
         # 1. explicit --bind-host / --redirect-path CLI overrides

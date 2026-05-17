@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-05-17
+
+### Fixed
+
+- ``liquidchat login --client-id prism --flow browser`` previously
+  failed at the Microsoft authorize step with
+  ``invalid_request: ... redirect_uri ... not valid``. Prism's
+  Azure-AD app registers the loopback URI with the *root* path
+  (``http://127.0.0.1:*/``), not ``/callback``. mcapi-auth 0.7.3 now
+  carries that override in ``KNOWN_CLIENT_REDIRECTS`` and liquidchat
+  picks it up automatically.
+
+### Added
+
+- Warn when ``--flow browser`` is used with a client_id known to have
+  no loopback reply URL registered (currently ``edu`` and
+  ``office365``). Suggests ``--flow device-code`` or ``--force-flow``.
+
+### Changed
+
+- Bump ``mcapi-auth`` floor to 0.7.3 (for the prism redirect override
+  and ``is_browser_unsupported`` helper).
+
 ## [0.8.6] - 2026-05-17
 
 ### Added
