@@ -351,7 +351,7 @@ wheels = [
 
 [[package]]
 name = "liquidchat"
-version = "0.8.6"
+version = "0.8.7"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -384,7 +384,7 @@ dev = [
 requires-dist = [
     { name = "cyclopts", marker = "extra == 'cli'", specifier = ">=3" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcapi-auth", git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.7.2" },
+    { name = "mcapi-auth", git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.7.3" },
     { name = "prompt-toolkit", marker = "extra == 'cli'", specifier = ">=3.0.50" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13" },
@@ -419,8 +419,8 @@ wheels = [
 
 [[package]]
 name = "mcapi-auth"
-version = "0.7.2"
-source = { git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.7.2#ab5c1faf4ac827ca6f1e6673cfda8ecb11ddc7b7" }
+version = "0.7.3"
+source = { git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.7.3#3d74844b47de04338877a0eaef184f20fd135188" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
