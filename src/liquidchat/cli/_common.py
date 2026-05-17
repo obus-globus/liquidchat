@@ -23,6 +23,16 @@ console: Console = Console()
 err_console: Console = Console(stderr=True)
 
 
+def token_file_path() -> Path:
+    """Return the path where the JWT is read from / written to.
+
+    Respects ``$LIQUIDCHAT_TOKEN_FILE`` if set; otherwise defaults to
+    ``~/.config/liquidchat/token``. Does not check whether the file
+    exists — useful for "where would the token be?" callers.
+    """
+    return Path(os.environ.get(_TOKEN_FILE_ENV) or _DEFAULT_TOKEN_FILE)
+
+
 def resolve_token(token: str | None) -> str:
     """Find the JWT to use.
 
@@ -69,4 +79,4 @@ async def resolve_uuid(target: str) -> str:
     return uuid.replace("-", "").lower()
 
 
-__all__ = ["console", "err_console", "resolve_token", "resolve_uuid"]
+__all__ = ["console", "err_console", "resolve_token", "resolve_uuid", "token_file_path"]
