@@ -277,7 +277,21 @@ liquidchat account remove old-account  # delete a profile
 ```bash
 liquidchat login                           # profile name = your MC username
 liquidchat login --account alt-account     # explicit profile name
+liquidchat login --flow browser            # browser flow (v2 + PKCE)
+liquidchat login --flow browser-v1         # browser flow (legacy Live-Connect)
 ```
+
+The MSA flow can be picked with `--flow`:
+
+- `device-code` (default): terminal-friendly device-code prompt
+  against the v2 endpoints with the Prism Launcher client_id.
+- `browser`: opens the browser to the same v2 endpoints with a
+  localhost-redirect listener (PKCE).
+- `browser-v1`: opens the browser to the legacy Live-Connect v1
+  `login.live.com/oauth20_*.srf` endpoints with the compressed
+  Minecraft Launcher client_id (`00000000402b5328`) and the `MBI_SSL`
+  scope. No PKCE. Useful when the v2 endpoints reject your account or
+  tenant.
 
 Runs the full Microsoft → Mojang → AxoChat auth chain end-to-end:
 
