@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-05-17
+
+### Changed
+
+- Bump ``mcapi-auth`` floor to 0.7.4. ``BROWSER_UNSUPPORTED_CLIENT_IDS``
+  now also covers every v1 / Live-Connect client_id in the catalog,
+  so ``--force-flow --flow browser --client-id <v1>`` (e.g. a
+  ``bedrock-*`` ID) now prints a useful warning instead of letting the
+  user wait for the v2 endpoint to reject the request as
+  ``AADSTS70001 (client_not_found)``.
+
 ## [0.8.7] - 2026-05-17
 
 ### Fixed
