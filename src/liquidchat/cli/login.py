@@ -1,20 +1,22 @@
 """``liquidchat login`` — run the full Microsoft → Mojang → AxoChat
 authentication chain and persist a fresh JWT under a named profile.
 
-End-to-end flow:
+Three MSA flows are supported (pick with ``--flow``):
 
-1. Run ``mcapi_auth.login`` to obtain a Minecraft access token. The
-   MSA refresh token is written to a per-profile path under
-   ``$LIQUIDCHAT_HOME/profiles/<name>/refresh_token.json``. If the
-   caller didn't pre-pick a profile name, we stage the refresh token
-   in a temp path under ``$LIQUIDCHAT_HOME/.staging-*`` and move it
-   into the final profile dir once the MSA flow reveals the username.
-2. Open the chat websocket, send ``RequestMojangInfo`` →
-   ``MojangInfo``.
-3. ``join_server`` (Yggdrasil session/minecraft/join).
-4. Send ``LoginMojang`` → ``Success``.
-5. Send ``RequestJWT`` → ``NewJWT.token``; write to
-   ``profiles/<name>/jwt``.
+* ``device-code`` (default) — terminal-friendly, prints a code + URL.
+  Talks to ``login.microsoftonline.com/consumers/oauth2/v2.0/*`` with
+  the Prism Launcher client_id.
+* ``browser`` — opens the user's browser to the same v2 endpoints
+  with a localhost redirect catcher (PKCE).
+* ``browser-v1`` — opens the user's browser to the legacy
+  ``login.live.com/oauth20_*.srf`` endpoints with the compressed
+  Minecraft Launcher client_id (``00000000402b5328``) and the
+  ``MBI_SSL`` scope. No PKCE (v1 predates it). Useful when the v2
+  endpoints reject your account / tenant.
+
+The rest of the chain (Xbox Live → XSTS → ``loginWithXbox`` →
+chat-server ``LoginMojang`` + ``RequestJWT``) is identical regardless
+of the MSA flow you pick.
 """
 
 from __future__ import annotations
@@ -24,9 +26,16 @@ import contextlib
 import os
 import secrets
 from pathlib import Path
+from typing import Literal
 
 import websockets
-from mcapi_auth import FileTokenStorage, join_server, login
+from mcapi_auth import (
+    FileTokenStorage,
+    join_server,
+    login,
+    login_via_browser,
+    login_via_browser_v1,
+)
 from mcapi_auth.auth.msa import DeviceCodePrompt
 
 from liquidchat import MojangInfo, NewJWT, Success
@@ -44,6 +53,8 @@ from ._common import (
     write_default_profile,
 )
 
+type FlowName = Literal["device-code", "browser", "browser-v1"]
+
 _MOJANG_INFO_TIMEOUT = 15.0
 _LOGIN_ACK_TIMEOUT = 20.0
 _JWT_TIMEOUT = 15.0
@@ -58,6 +69,23 @@ def _on_device_code(prompt: DeviceCodePrompt) -> None:
     )
 
 
+def _announce_browser(url: str) -> None:
+    """Browser-flow callback — print the URL before opening it.
+
+    The default ``webbrowser.open`` is also called so users with a
+    desktop session get the page automatically. SSH sessions / headless
+    boxes can copy the printed URL instead.
+    """
+    import webbrowser
+
+    console.print(
+        "\n[bold yellow]Microsoft login required[/bold yellow]\n"
+        f"  Open in your browser: [link={url}]{url}[/link]\n"
+    )
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+
+
 async def _recv_decoded(ws: websockets.ClientConnection, timeout: float) -> object:
     raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
     return decode(raw)
@@ -68,11 +96,26 @@ async def _run_login(
     allow_messages: bool,
     insecure: bool,
     refresh_storage_path: Path | None,
+    flow: FlowName,
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
-    console.print("[dim]running Microsoft → Minecraft auth...[/dim]")
+    console.print(f"[dim]running Microsoft → Minecraft auth (flow={flow})...[/dim]")
     storage = FileTokenStorage(path=refresh_storage_path) if refresh_storage_path else None
-    session = await login(on_device_code=_on_device_code, storage=storage)
+    if flow == "device-code":
+        session = await login(on_device_code=_on_device_code, storage=storage)
+    elif flow == "browser":
+        session = await login_via_browser(
+            storage=storage,
+            open_browser=_announce_browser,
+        )
+    elif flow == "browser-v1":
+        session = await login_via_browser_v1(
+            storage=storage,
+            open_browser=_announce_browser,
+        )
+    else:  # pragma: no cover - guarded at CLI layer
+        msg = f"unknown MSA flow {flow!r}"
+        raise ValueError(msg)
     console.print(f"[green]signed in as[/green] [bold]{session.username}[/bold] ({session.uuid})")
 
     ssl_ctx = build_ssl_context(insecure=insecure)
@@ -129,6 +172,7 @@ def login_cmd(
     remember: bool = True,
     set_default: bool | None = None,
     print_token: bool = False,
+    flow: FlowName = "device-code",
 ) -> None:
     """Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
 
@@ -136,6 +180,17 @@ def login_cmd(
     under ``$LIQUIDCHAT_HOME/profiles/<name>/``. The profile name
     defaults to the Minecraft username returned by the MSA flow; pass
     ``--account NAME`` to override (must match ``[A-Za-z0-9._-]+``).
+
+    Pick the MSA authentication flow with ``--flow``:
+
+    * ``device-code`` (default): terminal-friendly device-code prompt
+      against the v2 endpoints with the Prism Launcher client_id.
+    * ``browser``: opens the browser to the same v2 endpoints with a
+      localhost-redirect listener (PKCE).
+    * ``browser-v1``: opens the browser to the legacy Live-Connect v1
+      ``login.live.com/oauth20_*.srf`` endpoints with the compressed
+      Minecraft Launcher client_id ``00000000402b5328``. No PKCE.
+      Useful when the v2 endpoints reject your account / tenant.
 
     The first profile created in a fresh home dir is auto-promoted to
     the default; subsequent logins leave the default alone unless
@@ -153,6 +208,8 @@ def login_cmd(
             default only if there isn't one yet. ``True`` forces it,
             ``False`` leaves the existing default alone.
         print_token: Also echo the JWT to stdout.
+        flow: MSA flow to use — ``"device-code"`` (default),
+            ``"browser"``, or ``"browser-v1"``.
     """
     # If the caller pre-picked --account, write refresh straight into
     # the final destination. Otherwise stage in a temp path and rename
@@ -176,6 +233,7 @@ def login_cmd(
                 allow_messages=allow_messages,
                 insecure=insecure,
                 refresh_storage_path=refresh_path,
+                flow=flow,
             ),
         )
     except LoginFailedError as exc:

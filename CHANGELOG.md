@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --flow {device-code,browser,browser-v1}`` lets
+  you pick which Microsoft Account flow to use:
+  * ``device-code`` (default, unchanged) — terminal-friendly device
+    code against the v2 endpoints with the Prism Launcher client_id.
+  * ``browser`` — opens the user's browser to the same v2 endpoints
+    with a localhost-redirect listener (PKCE).
+  * ``browser-v1`` — opens the browser to the legacy Live-Connect
+    ``login.live.com/oauth20_*.srf`` endpoints with the compressed
+    Minecraft Launcher client_id (``00000000402b5328``) and the
+    ``MBI_SSL`` scope. Useful when the v2 endpoints reject your
+    account or tenant.
+
+### Changed
+
+- Bumped ``mcapi-auth`` pin to ``>=0.6.0`` (adds
+  ``login_via_browser``, ``login_via_browser_v1``).
+
 ## [0.6.1] - 2026-05-17
 
 ### Added
