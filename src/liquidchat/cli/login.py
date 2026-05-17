@@ -1,24 +1,20 @@
 """``liquidchat login`` — run the full Microsoft → Mojang → AxoChat
-authentication chain and persist a fresh JWT.
+authentication chain and persist a fresh JWT under a named profile.
 
 End-to-end flow:
 
-1. Open the chat websocket and send ``RequestMojangInfo``; the server
-   replies with a per-session ``session_hash`` (the "serverId" used in
-   the Yggdrasil joinServer handshake).
-2. Run ``mcapi_auth.login`` to obtain a Minecraft access token (MSA
-   device-code flow on first run, refresh-token reuse on subsequent
-   runs).
-3. POST that token + UUID + session_hash to
-   ``sessionserver.mojang.com/session/minecraft/join``
-   (``mcapi_auth.join_server``).
-4. Send ``LoginMojang { name, uuid, allow_messages }`` to the chat
-   server, wait for ``Success { reason: "Login" }``.
-5. Send ``RequestJWT``, capture ``NewJWT.token``, persist to the token
-   file (or print to stdout).
-
-No state from the existing ``--token`` path is required — this is the
-"I have nothing, log me in" entrypoint.
+1. Run ``mcapi_auth.login`` to obtain a Minecraft access token. The
+   MSA refresh token is written to a per-profile path under
+   ``$LIQUIDCHAT_HOME/profiles/<name>/refresh_token.json``. If the
+   caller didn't pre-pick a profile name, we stage the refresh token
+   in a temp path under ``$LIQUIDCHAT_HOME/.staging-*`` and move it
+   into the final profile dir once the MSA flow reveals the username.
+2. Open the chat websocket, send ``RequestMojangInfo`` →
+   ``MojangInfo``.
+3. ``join_server`` (Yggdrasil session/minecraft/join).
+4. Send ``LoginMojang`` → ``Success``.
+5. Send ``RequestJWT`` → ``NewJWT.token``; write to
+   ``profiles/<name>/jwt``.
 """
 
 from __future__ import annotations
@@ -26,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import secrets
 from pathlib import Path
 
 import websockets
@@ -36,9 +33,16 @@ from liquidchat import MojangInfo, NewJWT, Success
 from liquidchat.exceptions import LoginFailedError, ProtocolError
 from liquidchat.protocol import DEFAULT_WS_URL, build_ssl_context, decode, encode
 
-from ._common import console, err_console
-
-_DEFAULT_TOKEN_PATH = Path.home() / ".config" / "liquidchat" / "token"
+from ._common import (
+    console,
+    err_console,
+    jwt_path,
+    liquidchat_home,
+    profile_dir,
+    read_default_profile,
+    refresh_token_path,
+    write_default_profile,
+)
 
 _MOJANG_INFO_TIMEOUT = 15.0
 _LOGIN_ACK_TIMEOUT = 20.0
@@ -63,14 +67,11 @@ async def _run_login(
     *,
     allow_messages: bool,
     insecure: bool,
-    remember: bool,
-) -> str:
-    # Run the Microsoft → Minecraft auth chain BEFORE opening the
-    # websocket: device-code flow can take minutes (user has to walk
-    # to a browser) and chat.liquidbounce.net's keepalive will close
-    # an idle websocket long before the user finishes.
+    refresh_storage_path: Path | None,
+) -> tuple[str, str, str]:
+    """Run the auth chain. Returns ``(jwt, username, uuid)``."""
     console.print("[dim]running Microsoft → Minecraft auth...[/dim]")
-    storage = FileTokenStorage() if remember else None
+    storage = FileTokenStorage(path=refresh_storage_path) if refresh_storage_path else None
     session = await login(on_device_code=_on_device_code, storage=storage)
     console.print(f"[green]signed in as[/green] [bold]{session.username}[/bold] ({session.uuid})")
 
@@ -117,71 +118,105 @@ async def _run_login(
         body = getattr(msg, "c", None)
         if not isinstance(body, NewJWT):
             raise ProtocolError(f"expected NewJWT, got {msg!r}")
-        return body.token
+        return body.token, session.username, session.uuid
 
 
 def login_cmd(
     *,
+    account: str | None = None,
     allow_messages: bool = True,
     insecure: bool = True,
     remember: bool = True,
-    out: Path | None = None,
+    set_default: bool | None = None,
     print_token: bool = False,
 ) -> None:
-    """Sign in via Microsoft → Mojang → AxoChat and persist the JWT.
+    """Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
 
-    Steps the user through MSA device-code authentication, then
-    completes the Yggdrasil joinServer / LoginMojang handshake against
-    ``chat.liquidbounce.net``, and finally calls ``RequestJWT`` to
-    obtain a persistent token.
+    The resulting JWT and (optionally) MSA refresh token are written
+    under ``$LIQUIDCHAT_HOME/profiles/<name>/``. The profile name
+    defaults to the Minecraft username returned by the MSA flow; pass
+    ``--account NAME`` to override (must match ``[A-Za-z0-9._-]+``).
+
+    The first profile created in a fresh home dir is auto-promoted to
+    the default; subsequent logins leave the default alone unless
+    ``--set-default`` is explicitly passed.
 
     Args:
-        allow_messages: If True (default) other clients may send you
-            private messages while you're online with this token. The
-            flag is encoded into the LoginMojang payload.
+        account: Profile name to store credentials under. Defaults to
+            the Minecraft username from the auth flow.
+        allow_messages: Whether to accept private messages.
         insecure: Skip TLS verification on the websocket. Default
-            ``True`` because the public ``chat.liquidbounce.net``
-            deployment serves an expired cert. Pass ``--no-insecure``
-            against a private deployment with a valid cert.
-        remember: If True (default) cache the MSA refresh token at
-            ``$XDG_STATE_HOME/mcapi_auth/refresh_token.json`` so the
-            next ``liquidchat login`` skips the browser step. Pass
-            ``--no-remember`` to keep the device-code flow ephemeral
-            — mcapi-auth itself no longer writes anything to disk
-            unless this flag (or an explicit storage object) opts in.
-        out: Where to write the JWT. Defaults to
-            ``~/.config/liquidchat/token`` (or
-            ``$LIQUIDCHAT_TOKEN_FILE`` when set). The parent directory
-            is created with mode 0700 if missing.
-        print_token: Also echo the token to stdout (useful for piping
-            into a different store). The success line goes to stderr,
-            so ``liquidchat login --print-token > tokenfile`` only
-            captures the JWT itself.
+            ``True`` against the cert-expired public deployment.
+        remember: If True (default) persist the MSA refresh token so
+            subsequent logins skip the browser step.
+        set_default: ``None`` (default) → promote this profile to
+            default only if there isn't one yet. ``True`` forces it,
+            ``False`` leaves the existing default alone.
+        print_token: Also echo the JWT to stdout.
     """
+    # If the caller pre-picked --account, write refresh straight into
+    # the final destination. Otherwise stage in a temp path and rename
+    # after we learn the Minecraft username.
+    home = liquidchat_home()
+    home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    refresh_path: Path | None
+    staged: Path | None = None
+    if not remember:
+        refresh_path = None
+    elif account is not None:
+        profile_dir(account).mkdir(parents=True, exist_ok=True, mode=0o700)
+        refresh_path = refresh_token_path(account)
+    else:
+        staged = home / f".staging-refresh-{secrets.token_hex(8)}.json"
+        refresh_path = staged
+
     try:
-        token = asyncio.run(
-            _run_login(allow_messages=allow_messages, insecure=insecure, remember=remember),
+        token, username, _uuid = asyncio.run(
+            _run_login(
+                allow_messages=allow_messages,
+                insecure=insecure,
+                refresh_storage_path=refresh_path,
+            ),
         )
     except LoginFailedError as exc:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
         err_console.print(f"[red]login failed:[/red] {exc}")
         raise SystemExit(1) from exc
+    except BaseException:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+        raise
 
-    if out is None:
-        env_path = os.environ.get("LIQUIDCHAT_TOKEN_FILE")
-        out = Path(env_path) if env_path else _DEFAULT_TOKEN_PATH
-    out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    chosen_name = account if account is not None else username
+    profile_dir(chosen_name).mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    if staged is not None:
+        final_refresh = refresh_token_path(chosen_name)
+        try:
+            staged.replace(final_refresh)
+        except OSError as e:
+            err_console.print(f"[yellow]warning:[/yellow] could not move staged refresh token: {e}")
+            staged.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(final_refresh, 0o600)
+
+    out = jwt_path(chosen_name)
     out.write_text(token + "\n", encoding="utf-8")
     with contextlib.suppress(OSError):
-        # Best-effort on platforms (Windows) that don't honour POSIX modes.
         os.chmod(out, 0o600)
-    err_console.print(f"[green]JWT saved to[/green] {out}")
-    if remember:
-        from mcapi_auth.auth.storage import default_storage_path
 
-        err_console.print(
-            f"[green]MSA refresh token saved to[/green] {default_storage_path()} "
-            "[dim](pass --no-remember to skip persistence)[/dim]"
-        )
+    promote = set_default if set_default is not None else (read_default_profile() is None)
+    if promote:
+        write_default_profile(chosen_name)
+
+    err_console.print(f"[green]JWT saved to[/green] {out}  [dim](profile: {chosen_name})[/dim]")
+    if remember:
+        rt = refresh_token_path(chosen_name)
+        if rt.is_file():
+            err_console.print(f"[green]MSA refresh token saved to[/green] {rt}")
+    if promote:
+        err_console.print(f"[green]default profile set to[/green] {chosen_name}")
     if print_token:
         print(token)
 

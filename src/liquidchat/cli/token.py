@@ -14,7 +14,14 @@ from rich.table import Table
 
 from liquidchat import Client, InvalidTokenError, decode_unverified_payload, inspect_token
 
-from ._common import console, err_console, resolve_token, token_file_path
+from ._common import (
+    console,
+    err_console,
+    jwt_path,
+    refresh_token_path,
+    resolve_profile,
+    resolve_token,
+)
 
 token_app: App = App(name="token", help="JWT inspection, validation, and rotation.")
 
@@ -29,14 +36,12 @@ def _fmt_ts(ts: float | None) -> str:
 @token_app.command(name="info")
 def info(
     *,
+    account: str | None = None,
     token: str | None = None,
     raw: bool = False,
 ) -> None:
-    """Decode the JWT and print its claims (header + payload).
-
-    Pass ``--raw`` to get the original JSON instead of a pretty table.
-    """
-    jwt = resolve_token(token)
+    """Decode the JWT and print its claims (header + payload)."""
+    jwt = resolve_token(token, account)
     try:
         meta = inspect_token(jwt)
         header, payload = decode_unverified_payload(jwt)
@@ -69,15 +74,15 @@ def info(
 
 
 @token_app.command(name="validate")
-def validate(*, token: str | None = None, strict: bool = False, insecure: bool = True) -> None:
-    """Open a one-shot websocket and ask the server to validate the JWT.
-
-    By default a network failure is reported as "could not validate".
-    Pass ``--strict`` to let connection errors propagate instead. Pass
-    ``--insecure`` to skip TLS verification (required against the
-    official ``chat.liquidbounce.net`` deployment).
-    """
-    jwt = resolve_token(token)
+def validate(
+    *,
+    account: str | None = None,
+    token: str | None = None,
+    strict: bool = False,
+    insecure: bool = True,
+) -> None:
+    """Open a one-shot websocket and ask the server to validate the JWT."""
+    jwt = resolve_token(token, account)
     client = Client(token=jwt, insecure_ssl=insecure)
 
     async def _run() -> bool:
@@ -96,21 +101,23 @@ def validate(*, token: str | None = None, strict: bool = False, insecure: bool =
 @token_app.command(name="refresh")
 def refresh(
     *,
+    account: str | None = None,
     token: str | None = None,
     timeout: float = 10.0,
     insecure: bool = True,
+    save: bool = True,
 ) -> None:
-    """Open a fresh connection, request a new JWT, print it to stdout.
+    """Open a fresh connection, request a new JWT, persist it.
 
-    Pipe it into a file::
-
-        liquidchat token refresh > ~/.config/liquidchat/token
-
-    Pass ``--insecure`` to skip TLS verification.
+    By default the new JWT is written back to the profile's JWT file
+    (the same one the chat / send / mod commands would read from).
+    Pass ``--no-save`` to print to stdout only (useful for piping the
+    token into something else).
     """
     from liquidchat import PersistentClient
 
-    jwt = resolve_token(token)
+    profile_name = resolve_profile(account)
+    jwt = resolve_token(token, account)
 
     async def _run() -> str:
         async with PersistentClient(token=jwt, insecure_ssl=insecure) as client:
@@ -118,63 +125,65 @@ def refresh(
             return await client.request_new_jwt(timeout=timeout)
 
     new = asyncio.run(_run())
-    # Plain print so the token is easy to redirect; the friendly note
-    # goes to stderr so it doesn't pollute the captured output.
-    err_console.print("[green]New JWT issued:[/green]")
-    print(new)
+    err_console.print("[green]New JWT issued.[/green]")
+    if save:
+        target = jwt_path(profile_name)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target.write_text(new + "\n", encoding="utf-8")
+        err_console.print(f"[green]wrote JWT to[/green] {target}")
+    else:
+        print(new)
 
 
 @token_app.command(name="path")
-def path() -> None:
+def path(*, account: str | None = None) -> None:
     """Print the on-disk locations used for credentials.
 
-    Shows both the liquidchat JWT file (resolved against
-    ``$LIQUIDCHAT_TOKEN_FILE`` with the standard XDG-config fallback)
-    and the mcapi-auth MSA refresh-token file (XDG-state). Each line
-    is prefixed with a one-word label so the output is easy to grep
-    or feed to other commands.
+    Without ``--account`` the resolved (current/default) profile is
+    printed. Each line is one-token-label-prefixed for easy grepping.
     """
-    jwt_path = token_file_path()
-    jwt_status = "(exists)" if jwt_path.is_file() else "(missing)"
-    console.print(f"[bold cyan]jwt[/bold cyan]    {jwt_path}  [dim]{jwt_status}[/dim]")
-
-    try:
-        from mcapi_auth.auth.storage import default_storage_path
-    except ImportError:
-        return
-    rt_path = default_storage_path()
-    rt_status = "(exists)" if rt_path.is_file() else "(missing)"
-    console.print(f"[bold cyan]refresh[/bold cyan] {rt_path}  [dim]{rt_status}[/dim]")
+    name = resolve_profile(account)
+    j = jwt_path(name)
+    r = refresh_token_path(name)
+    j_status = "(exists)" if j.is_file() else "(missing)"
+    r_status = "(exists)" if r.is_file() else "(missing)"
+    console.print(f"[bold cyan]profile[/bold cyan] {name}")
+    console.print(f"[bold cyan]jwt[/bold cyan]     {j}  [dim]{j_status}[/dim]")
+    console.print(f"[bold cyan]refresh[/bold cyan] {r}  [dim]{r_status}[/dim]")
 
 
 @token_app.command(name="clear")
-def clear(*, jwt_only: bool = False, refresh_only: bool = False, yes: bool = False) -> None:
+def clear(
+    *,
+    account: str | None = None,
+    jwt_only: bool = False,
+    refresh_only: bool = False,
+    yes: bool = False,
+) -> None:
     """Delete the on-disk JWT (and optionally the MSA refresh token).
 
-    By default both files are removed. Pass ``--jwt-only`` to keep the
-    MSA refresh token (so the next ``liquidchat login`` won't need a
-    browser round-trip), or ``--refresh-only`` to keep the JWT.
+    Both files are removed by default for the resolved profile.
+    ``--jwt-only`` keeps the refresh token (so next ``liquidchat
+    login`` skips the browser step); ``--refresh-only`` keeps the JWT.
 
-    Pass ``--yes`` to skip the confirmation prompt.
+    Pass ``--yes`` to skip confirmation. Does *not* remove the
+    profile directory or the default-profile pointer — use
+    ``liquidchat account remove`` for that.
     """
     if jwt_only and refresh_only:
         err_console.print("[red]--jwt-only and --refresh-only are mutually exclusive[/red]")
         raise SystemExit(2)
 
+    name = resolve_profile(account)
     targets: list[tuple[str, Path]] = []
     if not refresh_only:
-        targets.append(("jwt", token_file_path()))
+        targets.append(("jwt", jwt_path(name)))
     if not jwt_only:
-        try:
-            from mcapi_auth.auth.storage import default_storage_path
-
-            targets.append(("refresh", default_storage_path()))
-        except ImportError:
-            pass
+        targets.append(("refresh", refresh_token_path(name)))
 
     existing = [(label, p) for label, p in targets if p.is_file()]
     if not existing:
-        console.print("[dim]nothing to clear[/dim]")
+        console.print(f"[dim]nothing to clear for profile {name!r}[/dim]")
         return
 
     for label, p in existing:

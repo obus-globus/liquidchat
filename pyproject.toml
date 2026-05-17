@@ -1,6 +1,6 @@
 [project]
 name = "liquidchat"
-version = "0.5.1"
+version = "0.6.0"
 description = "LiquidChat websocket client library (chat.liquidbounce.net)"
 readme = "README.md"
 license = { text = "MIT" }

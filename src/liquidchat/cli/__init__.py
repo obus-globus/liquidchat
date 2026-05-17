@@ -30,6 +30,7 @@ except ImportError as exc:  # pragma: no cover - exercised manually
     msg = "liquidchat CLI dependencies are missing. Install with: pip install 'liquidchat[cli]'"
     raise ImportError(msg) from exc
 
+from . import account as _account
 from . import chat as _chat
 from . import login as _login
 from . import mod as _mod
@@ -46,6 +47,7 @@ app: App = App(
 )
 
 app.command(_login.login_cmd, name="login")
+app.command(_account.account_app)
 app.command(_chat.chat)
 app.command(_send.send)
 app.command(_token.token_app)
