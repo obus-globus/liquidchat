@@ -228,7 +228,12 @@ def _translate_mcapi_error(
     callers translate "no such account" into ``None`` directly.
     """
     if isinstance(exc, _McRateLimited):
-        return MojangRateLimitError(fallback_url, "", retry_after=exc.retry_after)
+        return MojangRateLimitError(
+            fallback_url,
+            "",
+            retry_after=exc.retry_after,
+            rate_limit_result=exc.rate_limit_result,
+        )
     if isinstance(exc, _McBadRequest):
         # mcapi-auth raises this for a syntactically-bad name as well;
         # callers see a fully-formed HTTP error rather than a ValueError.

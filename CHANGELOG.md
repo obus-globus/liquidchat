@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-17
+
+### Added
+
+- **Restored `MojangRateLimitError.rate_limit_result`.** When Mojang
+  returns a 429 with an `X-Minecraft-Rate-Limit-Result` header
+  (observed value in the wild: `"OVER_LIMIT"`), the field is now
+  populated again. Requires `mcapi-auth >= 0.4.1`.
+
+### Changed
+
+- Bumped `mcapi-auth` dependency floor to `>= 0.4.1`.
+
 ## [0.2.0] - 2026-05-17
 
 ### Changed (breaking)
