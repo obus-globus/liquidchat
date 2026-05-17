@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-17
+
+### Added
+
+- **`liquidchat login` subcommand.** Runs the full Microsoft → Mojang
+  → AxoChat authentication chain end-to-end and persists the
+  resulting JWT to `~/.config/liquidchat/token` (or
+  `$LIQUIDCHAT_TOKEN_FILE` / `--out PATH`). Steps:
+  1. `RequestMojangInfo` over the chat websocket.
+  2. `mcapi_auth.login` for MSA device-code authentication (cached
+     refresh token on subsequent runs).
+  3. `mcapi_auth.join_server` to satisfy the Yggdrasil
+     joinServer handshake.
+  4. `LoginMojang` to the chat server, then `RequestJWT` →
+     `NewJWT`.
+- `--allow-messages / --no-allow-messages` flag controls whether the
+  resulting session accepts private messages.
+- `--print-token` mirrors the JWT to stdout in addition to writing
+  it to disk (so `liquidchat login --print-token > token.txt`
+  captures cleanly).
+
 ## [0.3.0] - 2026-05-17
 
 ### Added
