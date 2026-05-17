@@ -51,7 +51,7 @@ _HELP = """\
 """
 
 
-async def _run_chat(jwt: str, *, insecure_ssl: bool) -> None:
+async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float | None) -> None:
     loop = asyncio.get_running_loop()
     stop_event: asyncio.Event = asyncio.Event()
 
@@ -99,7 +99,12 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool) -> None:
         on_error=on_error,
     )
 
-    async with PersistentClient(token=jwt, handlers=handlers, insecure_ssl=insecure_ssl) as client:
+    async with PersistentClient(
+        token=jwt,
+        handlers=handlers,
+        insecure_ssl=insecure_ssl,
+        heartbeat_interval=heartbeat_interval,
+    ) as client:
         try:
             await client.wait_until_logged_in(timeout=15.0)
         except TimeoutError:
@@ -212,7 +217,12 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool) -> None:
     console.print("[dim]bye.[/dim]")
 
 
-def chat(*, token: str | None = None, insecure: bool = True) -> None:
+def chat(
+    *,
+    token: str | None = None,
+    insecure: bool = True,
+    heartbeat: float | None = 60.0,
+) -> None:
     """Open an interactive LiquidChat session.
 
     Connects with :class:`PersistentClient`, then runs a
@@ -220,15 +230,24 @@ def chat(*, token: str | None = None, insecure: bool = True) -> None:
     Anything that's not a slash-command is sent as a public chat
     message.
 
-    Pass ``--insecure`` to skip TLS certificate verification. The
-    public ``chat.liquidbounce.net`` server has been running with an
-    expired Let's Encrypt cert for years, so in practice this flag is
-    required against the official deployment.
+    ``--insecure`` (default on) skips TLS certificate verification.
+    The public ``chat.liquidbounce.net`` server has been running with
+    an expired Let's Encrypt cert for years, so in practice this is
+    required against the official deployment — pass
+    ``--no-insecure`` against a private deployment with a valid cert.
+
+    ``--heartbeat`` controls the application-level keepalive interval
+    in seconds (default 60). Defaults are sized to comfortably
+    survive consumer NAT idle-conntrack timeouts. Pass ``--heartbeat
+    0`` (or a negative value) to disable. The heartbeat sends a
+    ``RequestMojangInfo`` frame, which is the cheapest unauthenticated
+    server-side round-trip.
     """
     jwt = resolve_token(token)
+    hb: float | None = heartbeat if heartbeat and heartbeat > 0 else None
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_run_chat(jwt, insecure_ssl=insecure))
+        asyncio.run(_run_chat(jwt, insecure_ssl=insecure, heartbeat_interval=hb))
 
 
 __all__ = ["chat"]

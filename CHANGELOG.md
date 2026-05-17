@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-05-17
+
+### Added
+
+- ``PersistentClient`` now sends an application-level heartbeat
+  (``RequestMojangInfo`` every 60 s by default). This protects long-
+  running chat sessions from being silently torn down by stateful
+  NATs / firewalls along the path, which is the most common cause of
+  unexpected ``ConnectionClosedError`` after the connection has been
+  idle. The interval is configurable via the new
+  ``heartbeat_interval`` constructor argument (set to ``None`` or
+  ``0`` to disable). ``liquidchat chat`` exposes it as
+  ``--heartbeat <seconds>``.
+
 ## [0.4.4] - 2026-05-17
 
 ### Changed
