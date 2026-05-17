@@ -37,6 +37,7 @@ from mcapi_auth import (
     login,
     login_via_browser,
     login_via_browser_v1,
+    resolve_browser_redirect,
     resolve_client_id,
 )
 from mcapi_auth.auth.msa import DeviceCodePrompt
@@ -138,11 +139,25 @@ async def _run_login(
                 "[yellow]note:[/yellow] browser-v1 requested with a v2 (GUID) "
                 f"client_id {client_id!r}; using the v2 browser flow instead."
             )
-        session = await login_via_browser(
-            client_id=client_id,
-            storage=storage,
-            open_browser=_announce_browser,
-        )
+        # Some Azure apps register a non-default redirect — e.g.
+        # LiquidLauncher/LiquidBounce's app accepts http://localhost:*/login
+        # but not http://127.0.0.1:*/callback. Match the registered URI.
+        override = resolve_browser_redirect(client_id)
+        if override is not None:
+            bind_host, redirect_path = override
+            session = await login_via_browser(
+                client_id=client_id,
+                storage=storage,
+                open_browser=_announce_browser,
+                bind_host=bind_host,
+                redirect_path=redirect_path,
+            )
+        else:
+            session = await login_via_browser(
+                client_id=client_id,
+                storage=storage,
+                open_browser=_announce_browser,
+            )
     else:  # pragma: no cover - guarded at CLI layer
         msg = f"unknown MSA flow {flow!r}"
         raise ValueError(msg)
