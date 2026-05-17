@@ -221,7 +221,7 @@ def chat(
     *,
     token: str | None = None,
     insecure: bool = True,
-    heartbeat: float | None = 60.0,
+    heartbeat: float | None = None,
 ) -> None:
     """Open an interactive LiquidChat session.
 
@@ -237,11 +237,10 @@ def chat(
     ``--no-insecure`` against a private deployment with a valid cert.
 
     ``--heartbeat`` controls the application-level keepalive interval
-    in seconds (default 60). Defaults are sized to comfortably
-    survive consumer NAT idle-conntrack timeouts. Pass ``--heartbeat
-    0`` (or a negative value) to disable. The heartbeat sends a
-    ``RequestMojangInfo`` frame, which is the cheapest unauthenticated
-    server-side round-trip.
+    in seconds. Off by default. Set to a positive value (e.g. ``60``)
+    if you're behind a NAT that idle-drops the TCP flow. The
+    heartbeat sends ``RequestMojangInfo``, which is the cheapest
+    unauthenticated server-side round-trip.
     """
     jwt = resolve_token(token)
     hb: float | None = heartbeat if heartbeat and heartbeat > 0 else None
