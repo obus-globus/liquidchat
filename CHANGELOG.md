@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-17
+
+### Changed
+
+- ``liquidchat login`` now prints the *effective* MSA flow in its banner
+  rather than the requested one — picking a v1 client_id with the default
+  ``--flow device-code`` no longer prints a confusing "falling back to
+  browser-v1" note (the banner already shows ``flow=browser-v1``). The
+  override note is now only printed when ``--flow`` is incompatible with
+  the chosen v1 client_id in a way the user couldn't have predicted.
+
 ## [0.8.0] - 2026-05-17
 
 ### Added
