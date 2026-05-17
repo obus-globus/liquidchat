@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-17
+
+### Changed
+
+- Bumped ``mcapi-auth`` pin to ``>=0.6.1``. The ``browser-v1`` flow
+  now uses an out-of-band paste-back redirect
+  (``oauth20_desktop.srf``) instead of a localhost listener — the
+  legacy ``00000000402b5328`` client_id only accepts the OOB
+  redirect. After signing in, paste the resulting URL (or just the
+  ``code=`` value) into the terminal when prompted.
+
 ## [0.7.0] - 2026-05-17
 
 ### Added
