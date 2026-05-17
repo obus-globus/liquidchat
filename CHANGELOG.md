@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-05-17
+
+### Fixed
+
+- ``liquidchat login --flow browser-v1`` now successfully completes
+  the XBL ``/authenticate`` step. Bumps ``mcapi-auth`` to ``>=0.6.2``
+  which sends the MBI_SSL access token to XBL without the ``d=``
+  prefix (MBI_SSL tokens are pre-formed RPS tickets).
+
 ## [0.7.1] - 2026-05-17
 
 ### Changed
