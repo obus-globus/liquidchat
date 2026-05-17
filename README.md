@@ -248,6 +248,28 @@ chmod 600 ~/.config/liquidchat/token
 liquidchat token info   # uses the file automatically
 ```
 
+### Logging in (no token? start here)
+
+```bash
+liquidchat login
+```
+
+Runs the full Microsoft → Mojang → AxoChat auth chain end-to-end:
+
+1. Opens the websocket and asks for a `MojangInfo` challenge.
+2. Walks you through MSA device-code authentication via `mcapi-auth`
+   (first run only — the refresh token is cached at the standard
+   XDG state path, so subsequent logins are silent).
+3. Calls `sessionserver.mojang.com/session/minecraft/join` to prove
+   account ownership.
+4. Sends `LoginMojang` to the chat server, then `RequestJWT`, then
+   writes the resulting JWT to `~/.config/liquidchat/token` (or
+   `$LIQUIDCHAT_TOKEN_FILE` / `--out PATH`).
+
+After that, every other subcommand picks the token up automatically.
+`liquidchat token refresh` rotates it on the same connection without
+re-running the MSA flow.
+
 ### Interactive chat
 
 ```bash

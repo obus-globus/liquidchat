@@ -31,6 +31,7 @@ except ImportError as exc:  # pragma: no cover - exercised manually
     raise ImportError(msg) from exc
 
 from . import chat as _chat
+from . import login as _login
 from . import mod as _mod
 from . import mojang as _mojang
 from . import send as _send
@@ -44,6 +45,7 @@ app: App = App(
     ),
 )
 
+app.command(_login.login_cmd, name="login")
 app.command(_chat.chat)
 app.command(_send.send)
 app.command(_token.token_app)
