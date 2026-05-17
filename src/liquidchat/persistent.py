@@ -100,12 +100,14 @@ class PersistentClient:
         insecure_ssl: bool = False,
         handlers: Handlers | None = None,
         reconnect: ReconnectPolicy | None = None,
+        heartbeat_interval: float | None = 60.0,
     ) -> None:
         self._url = url
         self._accept_private_messages = accept_private_messages
         self._insecure_ssl = insecure_ssl
         self.handlers = handlers or Handlers()
         self.reconnect = reconnect or ReconnectPolicy()
+        self._heartbeat_interval = heartbeat_interval
 
         self._token: str | None = token
         self._task: asyncio.Task[None] | None = None
@@ -378,14 +380,24 @@ class PersistentClient:
                             await _safe_call(self.handlers.on_login_success())
 
                         sender = asyncio.create_task(self._sender_loop(ws))
+                        heartbeat = (
+                            asyncio.create_task(self._heartbeat_loop(ws))
+                            if self._heartbeat_interval and self._heartbeat_interval > 0
+                            else None
+                        )
                         try:
                             await self._receiver_loop(ws)
                         finally:
                             self._logged_in.clear()
                             self._fail_pending_action()
                             sender.cancel()
+                            if heartbeat is not None:
+                                heartbeat.cancel()
                             with contextlib.suppress(asyncio.CancelledError, Exception):
                                 await sender
+                            if heartbeat is not None:
+                                with contextlib.suppress(asyncio.CancelledError, Exception):
+                                    await heartbeat
                 except ConnectionClosed as e:
                     logger.warning("liquidchat connection closed: %s", e)
                 except Exception:
@@ -446,6 +458,32 @@ class PersistentClient:
                 return
             else:
                 self._outgoing.task_done()
+
+    async def _heartbeat_loop(self, ws: websockets.ClientConnection) -> None:
+        """Periodically send ``RequestMojangInfo`` to keep the path alive.
+
+        The axochat protocol has no application-level heartbeat. Stateful
+        NATs / firewalls between the client and the server can silently
+        drop the TCP flow's conntrack entry after a few minutes of idle,
+        which leaves the connection wedged until the next outbound packet.
+
+        ``RequestMojangInfo`` is the cheapest server-side roundtrip: it
+        requires no authentication, has no side effects, and the
+        resulting ``MojangInfo`` frame is harmless to receive at any
+        time — :meth:`_dispatch` simply ignores it.
+        """
+        interval = self._heartbeat_interval or 0
+        if interval <= 0:
+            return
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    await ws.send(encode("RequestMojangInfo"))
+                except ConnectionClosed:
+                    return
+        except asyncio.CancelledError:
+            raise
 
     async def _receiver_loop(self, ws: websockets.ClientConnection) -> None:
         async for raw in ws:
