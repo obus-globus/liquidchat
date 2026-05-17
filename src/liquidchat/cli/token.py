@@ -68,14 +68,16 @@ def info(
 
 
 @token_app.command(name="validate")
-def validate(*, token: str | None = None, strict: bool = False) -> None:
+def validate(*, token: str | None = None, strict: bool = False, insecure: bool = False) -> None:
     """Open a one-shot websocket and ask the server to validate the JWT.
 
     By default a network failure is reported as "could not validate".
-    Pass ``--strict`` to let connection errors propagate instead.
+    Pass ``--strict`` to let connection errors propagate instead. Pass
+    ``--insecure`` to skip TLS verification (required against the
+    official ``chat.liquidbounce.net`` deployment).
     """
     jwt = resolve_token(token)
-    client = Client(token=jwt)
+    client = Client(token=jwt, insecure_ssl=insecure)
 
     async def _run() -> bool:
         if strict:
@@ -95,19 +97,22 @@ def refresh(
     *,
     token: str | None = None,
     timeout: float = 10.0,
+    insecure: bool = False,
 ) -> None:
     """Open a fresh connection, request a new JWT, print it to stdout.
 
     Pipe it into a file::
 
         liquidchat token refresh > ~/.config/liquidchat/token
+
+    Pass ``--insecure`` to skip TLS verification.
     """
     from liquidchat import PersistentClient
 
     jwt = resolve_token(token)
 
     async def _run() -> str:
-        async with PersistentClient(token=jwt) as client:
+        async with PersistentClient(token=jwt, insecure_ssl=insecure) as client:
             await client.wait_until_logged_in(timeout=timeout)
             return await client.request_new_jwt(timeout=timeout)
 

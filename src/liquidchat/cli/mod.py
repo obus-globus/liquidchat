@@ -9,19 +9,20 @@ from liquidchat import Client
 from ._common import console, err_console, resolve_token, resolve_uuid
 
 
-def ban(target: str, /, *, token: str | None = None) -> None:
+def ban(target: str, /, *, token: str | None = None, insecure: bool = False) -> None:
     """Ban a player by UUID or username.
 
     Usernames are resolved against the public Mojang API before the
-    moderation action is sent.
+    moderation action is sent. Pass ``--insecure`` to skip TLS
+    verification against the chat server (the official deployment has
+    an expired cert).
     """
     jwt = resolve_token(token)
 
     async def _run() -> bool:
         uuid = await resolve_uuid(target)
-        client = Client(token=jwt)
-        ok = await client.ban_user(uuid)
-        return ok
+        client = Client(token=jwt, insecure_ssl=insecure)
+        return await client.ban_user(uuid)
 
     if asyncio.run(_run()):
         console.print(f"[green]banned[/green] {target}")
@@ -30,13 +31,16 @@ def ban(target: str, /, *, token: str | None = None) -> None:
         raise SystemExit(1)
 
 
-def unban(target: str, /, *, token: str | None = None) -> None:
-    """Unban a player by UUID or username."""
+def unban(target: str, /, *, token: str | None = None, insecure: bool = False) -> None:
+    """Unban a player by UUID or username.
+
+    Pass ``--insecure`` to skip TLS verification.
+    """
     jwt = resolve_token(token)
 
     async def _run() -> bool:
         uuid = await resolve_uuid(target)
-        client = Client(token=jwt)
+        client = Client(token=jwt, insecure_ssl=insecure)
         return await client.unban_user(uuid)
 
     if asyncio.run(_run()):
