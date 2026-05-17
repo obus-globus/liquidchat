@@ -102,20 +102,22 @@ async def _run_login(
     refresh_storage_path: Path | None,
     flow: FlowName,
     client_id: str,
+    force_flow: bool,
     bind_host: str | None,
     bind_port: int | None,
     redirect_path: str | None,
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
     is_v1 = is_v1_client_id(client_id)
-    effective_flow: FlowName = "browser-v1" if is_v1 else flow
+    effective_flow: FlowName = flow if force_flow else ("browser-v1" if is_v1 else flow)
     console.print(
         f"[dim]running Microsoft → Minecraft auth "
-        f"(flow={effective_flow}, client_id={client_id})...[/dim]"
+        f"(flow={effective_flow}, client_id={client_id}"
+        f"{', force_flow=True' if force_flow else ''})...[/dim]"
     )
     storage = FileTokenStorage(path=refresh_storage_path) if refresh_storage_path else None
 
-    if is_v1:
+    if is_v1 and not force_flow:
         # v1 client_ids only work against login.live.com/oauth20_*.srf
         # which doesn't support a device-code endpoint we talk to.
         # Force the OOB browser flow.
@@ -124,12 +126,28 @@ async def _run_login(
             # the closest equivalent is browser-v1 (which we're using).
             console.print(
                 f"[yellow]note:[/yellow] --flow {flow} is not supported for v1 "
-                f"client_id {client_id!r}; using browser-v1 instead."
+                f"client_id {client_id!r}; using browser-v1 instead. "
+                f"Pass --force-flow to disable this auto-dispatch."
             )
         if bind_host is not None or bind_port is not None or redirect_path is not None:
             console.print(
                 "[yellow]note:[/yellow] --bind-host / --bind-port / "
                 "--redirect-path are ignored for v1 client_ids (the OOB "
+                "paste-back flow doesn't use a local listener)."
+            )
+        session = await login_via_browser_v1(
+            client_id=client_id,
+            storage=storage,
+            open_browser=_announce_browser,
+        )
+    elif force_flow and flow == "browser-v1":
+        # Explicit v1 browser flow regardless of client_id format. With
+        # a v2 GUID client_id this will probably fail at the v1 authorize
+        # endpoint, but that's the user's experiment to run.
+        if bind_host is not None or bind_port is not None or redirect_path is not None:
+            console.print(
+                "[yellow]note:[/yellow] --bind-host / --bind-port / "
+                "--redirect-path are ignored for --flow browser-v1 (OOB "
                 "paste-back flow doesn't use a local listener)."
             )
         session = await login_via_browser_v1(
@@ -149,10 +167,11 @@ async def _run_login(
         # v2 client_id + browser → PKCE+localhost flow.
         # browser-v1 with a v2 client_id is a contradiction; we silently
         # use the v2 browser flow (the user picked a GUID).
-        if flow == "browser-v1":
+        if flow == "browser-v1" and not force_flow:
             console.print(
                 "[yellow]note:[/yellow] browser-v1 requested with a v2 (GUID) "
-                f"client_id {client_id!r}; using the v2 browser flow instead."
+                f"client_id {client_id!r}; using the v2 browser flow instead. "
+                f"Pass --force-flow to disable this auto-dispatch."
             )
         # Resolve the redirect URI in priority order:
         # 1. explicit --bind-host / --redirect-path CLI overrides
@@ -241,6 +260,7 @@ def login_cmd(
     print_token: bool = False,
     flow: FlowName = "device-code",
     client_id: str = "prism",
+    force_flow: bool = False,
     bind_host: str | None = None,
     bind_port: int | None = None,
     redirect_path: str | None = None,
@@ -300,6 +320,13 @@ def login_cmd(
         flow: MSA flow to use. See above.
         client_id: Microsoft OAuth client_id (alias or literal).
             Default ``"prism"``.
+        force_flow: When ``True``, disable the auto-dispatch from
+            ``--flow`` + ``--client-id``. Useful for testing
+            non-standard combinations (e.g. ``--flow browser`` with a
+            v1 client_id, or ``--flow browser-v1`` with a v2 GUID).
+            Most such combinations will fail at Microsoft's authorize
+            endpoint, which is the point — you'll see the real error.
+            Default ``False``.
         bind_host: Override the local listener host for ``--flow browser``
             (default: per-client from ``mcapi_auth.KNOWN_CLIENT_REDIRECTS``,
             then ``127.0.0.1``). Must match the Azure app's registered
@@ -342,6 +369,7 @@ def login_cmd(
                 refresh_storage_path=refresh_path,
                 flow=flow,
                 client_id=resolved_client_id,
+                force_flow=force_flow,
                 bind_host=bind_host,
                 bind_port=bind_port,
                 redirect_path=redirect_path,
