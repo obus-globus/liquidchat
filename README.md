@@ -239,6 +239,13 @@ explicitly the CLI looks in this order:
 2. The file at `$LIQUIDCHAT_TOKEN_FILE` (default
    `~/.config/liquidchat/token`)
 
+> **Heads up:** the official `chat.liquidbounce.net` deployment has
+> been serving an expired TLS certificate since 2020. Every subcommand
+> that opens the chat websocket (`login`, `chat`, `send`,
+> `token validate`, `token refresh`, `ban`, `unban`) accepts
+> `--insecure` to skip cert verification. Use it against the public
+> server.
+
 So a typical setup is:
 
 ```bash

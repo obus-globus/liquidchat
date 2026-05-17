@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-17
+
+### Added
+
+- `--insecure` flag on every CLI subcommand that opens a chat
+  websocket (`login`, `chat`, `send`, `token validate`,
+  `token refresh`, `ban`, `unban`). Required against the public
+  `chat.liquidbounce.net` deployment, whose TLS certificate expired
+  in 2020 and has never been renewed. The flag maps to
+  `Client(insecure_ssl=True)` / `PersistentClient(insecure_ssl=True)`,
+  which were already supported on the library side.
+
 ## [0.4.0] - 2026-05-17
 
 ### Added

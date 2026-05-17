@@ -51,7 +51,7 @@ _HELP = """\
 """
 
 
-async def _run_chat(jwt: str) -> None:
+async def _run_chat(jwt: str, *, insecure_ssl: bool) -> None:
     loop = asyncio.get_running_loop()
     stop_event: asyncio.Event = asyncio.Event()
 
@@ -99,7 +99,7 @@ async def _run_chat(jwt: str) -> None:
         on_error=on_error,
     )
 
-    async with PersistentClient(token=jwt, handlers=handlers) as client:
+    async with PersistentClient(token=jwt, handlers=handlers, insecure_ssl=insecure_ssl) as client:
         try:
             await client.wait_until_logged_in(timeout=15.0)
         except TimeoutError:
@@ -212,18 +212,23 @@ async def _run_chat(jwt: str) -> None:
     console.print("[dim]bye.[/dim]")
 
 
-def chat(*, token: str | None = None) -> None:
+def chat(*, token: str | None = None, insecure: bool = False) -> None:
     """Open an interactive LiquidChat session.
 
     Connects with :class:`PersistentClient`, then runs a
     ``prompt_toolkit`` REPL until you type ``/quit`` (or hit Ctrl-D).
     Anything that's not a slash-command is sent as a public chat
     message.
+
+    Pass ``--insecure`` to skip TLS certificate verification. The
+    public ``chat.liquidbounce.net`` server has been running with an
+    expired Let's Encrypt cert for years, so in practice this flag is
+    required against the official deployment.
     """
     jwt = resolve_token(token)
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_run_chat(jwt))
+        asyncio.run(_run_chat(jwt, insecure_ssl=insecure))
 
 
 __all__ = ["chat"]
