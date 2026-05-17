@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --client-id liquidlauncher`` (alias also:
+  ``liquidbounce``) — authenticates against the Azure-AD app shared by
+  LiquidLauncher and the in-game LiquidBounce client
+  (``0add8caf-2cc6-4546-b798-c3d171217dd9``). v2 GUID with
+  ``XboxLive.signin offline_access``. Requires mcapi-auth ≥ 0.7.1.
+
 ## [0.8.1] - 2026-05-17
 
 ### Changed
