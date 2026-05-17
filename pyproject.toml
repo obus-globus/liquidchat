@@ -34,6 +34,7 @@ cli = [
 
 [project.scripts]
 liquidchat = "liquidchat.cli:main"
+liquidchat-loopback-probe = "liquidchat.loopback_probe:main"
 
 [project.urls]
 Repository = "https://github.com/clawdbot-silly-waddle/liquidchat"
