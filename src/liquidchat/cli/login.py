@@ -175,6 +175,13 @@ def login_cmd(
         # Best-effort on platforms (Windows) that don't honour POSIX modes.
         os.chmod(out, 0o600)
     err_console.print(f"[green]JWT saved to[/green] {out}")
+    if remember:
+        from mcapi_auth.auth.storage import default_storage_path
+
+        err_console.print(
+            f"[green]MSA refresh token saved to[/green] {default_storage_path()} "
+            "[dim](pass --no-remember to skip persistence)[/dim]"
+        )
     if print_token:
         print(token)
 

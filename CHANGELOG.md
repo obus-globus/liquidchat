@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-17
+
+### Added
+
+- ``liquidchat login`` now prints the on-disk location of the MSA
+  refresh token whenever ``--remember`` (the default) is in effect,
+  alongside the existing JWT-saved line.
+
 ## [0.5.0] - 2026-05-17
 
 ### Changed (breaking)
