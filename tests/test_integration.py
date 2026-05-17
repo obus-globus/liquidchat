@@ -1,7 +1,5 @@
 """Integration tests against a real axochat_server instance."""
 
-from __future__ import annotations
-
 import asyncio
 import subprocess
 

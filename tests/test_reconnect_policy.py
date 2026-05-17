@@ -1,7 +1,5 @@
 """Unit tests for the reconnect backoff policy."""
 
-from __future__ import annotations
-
 import random
 
 import pytest

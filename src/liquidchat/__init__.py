@@ -22,8 +22,6 @@ Example::
     asyncio.run(main())
 """
 
-from __future__ import annotations
-
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 

@@ -6,8 +6,6 @@ Each call opens a fresh websocket, performs the action, and closes — use
 :class:`liquidchat.PersistentClient` instead for sustained workloads.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable

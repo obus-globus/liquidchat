@@ -1,7 +1,5 @@
 """Unit tests for liquidchat.mojang (no real network calls)."""
 
-from __future__ import annotations
-
 import json
 from typing import Any
 
@@ -9,8 +7,6 @@ import httpx
 import pytest
 
 from liquidchat.mojang import (
-    DEFAULT_PROFILE_URL,
-    DEFAULT_SESSION_URL,
     MojangClient,
     MojangHTTPError,
     MojangProfile,
@@ -145,9 +141,21 @@ async def test_lookup_by_name_returns_full_profile() -> None:
 
 @pytest.mark.asyncio
 async def test_default_urls_are_mojang() -> None:
-    # Defensive: make sure we haven't accidentally pointed at staging.
-    assert DEFAULT_PROFILE_URL == "https://api.mojang.com"
-    assert DEFAULT_SESSION_URL == "https://sessionserver.mojang.com"
+    # Defensive: make sure we still hit api.mojang.com (this also pins
+    # mcapi-auth's hardcoded URLs by way of the request handler below).
+    seen_hosts: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_hosts.append(req.url.host)
+        if "/users/profiles/minecraft/" in req.url.path:
+            return httpx.Response(200, json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME})
+        return httpx.Response(200, json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME})
+
+    async with _make_client(httpx.MockTransport(handler)) as mojang:
+        await mojang.resolve_uuid(NOTCH_NAME)
+        await mojang.resolve_username(NOTCH_UUID_DASHED)
+    assert "api.mojang.com" in seen_hosts
+    assert "sessionserver.mojang.com" in seen_hosts
 
 
 @pytest.mark.asyncio

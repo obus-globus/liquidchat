@@ -1,7 +1,5 @@
 """Lightweight helpers around the wire protocol."""
 
-from __future__ import annotations
-
 import json
 import ssl
 from typing import Any

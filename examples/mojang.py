@@ -5,8 +5,6 @@ spoken since the client connected. For arbitrary lookups, fall back to
 the Mojang public API via :mod:`liquidchat.mojang`.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from liquidchat import Handlers, PersistentClient

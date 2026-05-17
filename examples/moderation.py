@@ -5,8 +5,6 @@ moderators file. See ``examples/README.md`` for the contract around
 ban/unban return values.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from liquidchat import AuthorInfo, Client, Handlers, PersistentClient

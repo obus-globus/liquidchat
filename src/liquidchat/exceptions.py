@@ -1,7 +1,5 @@
 """Exception types raised by the liquidchat package."""
 
-from __future__ import annotations
-
 
 class LiquidChatError(Exception):
     """Base class for all liquidchat errors."""
