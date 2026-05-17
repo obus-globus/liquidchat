@@ -29,7 +29,7 @@ import os
 from pathlib import Path
 
 import websockets
-from mcapi_auth import join_server, login
+from mcapi_auth import FileTokenStorage, join_server, login
 from mcapi_auth.auth.msa import DeviceCodePrompt
 
 from liquidchat import MojangInfo, NewJWT, Success
@@ -63,13 +63,15 @@ async def _run_login(
     *,
     allow_messages: bool,
     insecure: bool,
+    remember: bool,
 ) -> str:
     # Run the Microsoft → Minecraft auth chain BEFORE opening the
     # websocket: device-code flow can take minutes (user has to walk
     # to a browser) and chat.liquidbounce.net's keepalive will close
     # an idle websocket long before the user finishes.
     console.print("[dim]running Microsoft → Minecraft auth...[/dim]")
-    session = await login(on_device_code=_on_device_code)
+    storage = FileTokenStorage() if remember else None
+    session = await login(on_device_code=_on_device_code, storage=storage)
     console.print(f"[green]signed in as[/green] [bold]{session.username}[/bold] ({session.uuid})")
 
     ssl_ctx = build_ssl_context(insecure=insecure)
@@ -122,24 +124,31 @@ def login_cmd(
     *,
     allow_messages: bool = True,
     insecure: bool = True,
+    remember: bool = True,
     out: Path | None = None,
     print_token: bool = False,
 ) -> None:
     """Sign in via Microsoft → Mojang → AxoChat and persist the JWT.
 
-    Steps the user through MSA device-code authentication (first run
-    only — the refresh token is cached at the standard mcapi-auth XDG
-    state path), then completes the Yggdrasil joinServer / LoginMojang
-    handshake against ``chat.liquidbounce.net``, and finally calls
-    ``RequestJWT`` to obtain a persistent token.
+    Steps the user through MSA device-code authentication, then
+    completes the Yggdrasil joinServer / LoginMojang handshake against
+    ``chat.liquidbounce.net``, and finally calls ``RequestJWT`` to
+    obtain a persistent token.
 
     Args:
         allow_messages: If True (default) other clients may send you
             private messages while you're online with this token. The
             flag is encoded into the LoginMojang payload.
-        insecure: Disable TLS verification on the websocket. Only
-            useful when pointing at a local axochat_server with a
-            self-signed cert.
+        insecure: Skip TLS verification on the websocket. Default
+            ``True`` because the public ``chat.liquidbounce.net``
+            deployment serves an expired cert. Pass ``--no-insecure``
+            against a private deployment with a valid cert.
+        remember: If True (default) cache the MSA refresh token at
+            ``$XDG_STATE_HOME/mcapi_auth/refresh_token.json`` so the
+            next ``liquidchat login`` skips the browser step. Pass
+            ``--no-remember`` to keep the device-code flow ephemeral
+            — mcapi-auth itself no longer writes anything to disk
+            unless this flag (or an explicit storage object) opts in.
         out: Where to write the JWT. Defaults to
             ``~/.config/liquidchat/token`` (or
             ``$LIQUIDCHAT_TOKEN_FILE`` when set). The parent directory
@@ -151,7 +160,7 @@ def login_cmd(
     """
     try:
         token = asyncio.run(
-            _run_login(allow_messages=allow_messages, insecure=insecure),
+            _run_login(allow_messages=allow_messages, insecure=insecure, remember=remember),
         )
     except LoginFailedError as exc:
         err_console.print(f"[red]login failed:[/red] {exc}")

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-17
+
+### Changed (breaking)
+
+- Bumped ``mcapi-auth`` pin to ``v0.5.0``, which no longer persists
+  the MSA refresh token by default. ``liquidchat login`` now opts in
+  explicitly via the new ``--remember`` flag (defaults to ``True``
+  for parity with previous behavior; pass ``--no-remember`` for an
+  ephemeral one-shot login that leaves no on-disk artifact from
+  mcapi-auth). Library consumers using ``mcapi_auth.login`` directly
+  must now pass ``storage=FileTokenStorage()`` to keep the old
+  behavior.
+
 ## [0.4.7] - 2026-05-17
 
 ### Added
