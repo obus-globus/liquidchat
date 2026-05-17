@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-17
+
+### Added
+
+- ``liquidchat chat --anonymous`` opens a read-only connection
+  without logging in: incoming public chat is streamed to the
+  terminal, but typing a message (or running ``/ban``, ``/unban``,
+  ``/pm``, ``/count``, ``/refresh-jwt``) is blocked with a friendly
+  notice. No JWT / profile is required. Useful for spectating.
+- ``PersistentClient(anonymous=True)`` skips the ``LoginJWT`` step
+  entirely; ``token=`` becomes optional in that mode.
+
 ## [0.6.0] - 2026-05-17
 
 ### Changed (breaking)

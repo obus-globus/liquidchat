@@ -304,6 +304,7 @@ by default; pass `--no-save` to print it instead).
 ```bash
 liquidchat chat                       # uses the default profile
 liquidchat chat --account alt-account # pick a specific profile
+liquidchat chat --anonymous           # read-only, no login required
 ```
 
 Opens a `PersistentClient`, prints inbound chat (with timestamps +

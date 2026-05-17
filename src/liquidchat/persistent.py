@@ -101,6 +101,7 @@ class PersistentClient:
         handlers: Handlers | None = None,
         reconnect: ReconnectPolicy | None = None,
         heartbeat_interval: float | None = None,
+        anonymous: bool = False,
     ) -> None:
         self._url = url
         self._accept_private_messages = accept_private_messages
@@ -108,6 +109,7 @@ class PersistentClient:
         self.handlers = handlers or Handlers()
         self.reconnect = reconnect or ReconnectPolicy()
         self._heartbeat_interval = heartbeat_interval
+        self._anonymous = anonymous
 
         self._token: str | None = token
         self._task: asyncio.Task[None] | None = None
@@ -187,8 +189,10 @@ class PersistentClient:
         """Start the background run loop. Returns the task."""
         if self._task and not self._task.done():
             return self._task
-        if not self._token:
-            raise MissingTokenError("call set_jwt_token() or pass token= before start()")
+        if not self._anonymous and not self._token:
+            raise MissingTokenError(
+                "call set_jwt_token() or pass token= before start() (or set anonymous=True)"
+            )
         self._enabled = True
         self._exit.clear()
         self._task = asyncio.create_task(self._run(), name="liquidchat-persistent")
@@ -367,7 +371,10 @@ class PersistentClient:
                             await _safe_call(self.handlers.on_connect())
 
                         try:
-                            await self._login(ws)
+                            if self._anonymous:
+                                logger.info("liquidchat: anonymous read-only connection")
+                            else:
+                                await self._login(ws)
                         except LoginFailedError:
                             logger.error("liquidchat login rejected by server; will not retry")
                             self._login_failed = True
