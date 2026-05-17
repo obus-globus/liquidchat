@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --force-flow`` (default ``False``). When set,
+  disables the auto-dispatch from ``--flow`` + ``--client-id`` so the
+  requested flow is invoked literally regardless of client_id format.
+  Useful for testing non-standard combinations like ``--flow browser``
+  with a v1 client_id (which talks to the v2 OAuth endpoint with a v1
+  ID — most likely fails, exposing Microsoft's real error). The
+  fallback notes now mention ``--force-flow`` so users know the escape
+  hatch exists.
+
 ## [0.8.5] - 2026-05-17
 
 ### Added
