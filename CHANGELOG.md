@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-05-17
+
+### Changed
+
+- `--insecure` now defaults to **on** for every CLI subcommand that
+  opens a chat websocket. The public ``chat.liquidbounce.net``
+  deployment has been serving an expired TLS cert for ~6 years, so
+  this matches reality. Pass ``--no-insecure`` to opt back into cert
+  verification (useful when pointing the CLI at a private deployment
+  with a valid cert).
+- ``PersistentClient`` no longer pings the server every 30s. The
+  axochat server doesn't emit pong frames, so the client-side ping
+  timeout would tear the connection down after the first idle window.
+  Disabled `ping_interval`/`ping_timeout` entirely; TCP keepalive is
+  left to the kernel. Reconnect logic still handles real drops.
+
 ## [0.4.3] - 2026-05-17
 
 ### Fixed

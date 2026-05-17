@@ -9,7 +9,7 @@ from liquidchat import Client
 from ._common import console, err_console, resolve_token, resolve_uuid
 
 
-def ban(target: str, /, *, token: str | None = None, insecure: bool = False) -> None:
+def ban(target: str, /, *, token: str | None = None, insecure: bool = True) -> None:
     """Ban a player by UUID or username.
 
     Usernames are resolved against the public Mojang API before the
@@ -31,7 +31,7 @@ def ban(target: str, /, *, token: str | None = None, insecure: bool = False) -> 
         raise SystemExit(1)
 
 
-def unban(target: str, /, *, token: str | None = None, insecure: bool = False) -> None:
+def unban(target: str, /, *, token: str | None = None, insecure: bool = True) -> None:
     """Unban a player by UUID or username.
 
     Pass ``--insecure`` to skip TLS verification.

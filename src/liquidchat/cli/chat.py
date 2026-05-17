@@ -212,7 +212,7 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool) -> None:
     console.print("[dim]bye.[/dim]")
 
 
-def chat(*, token: str | None = None, insecure: bool = False) -> None:
+def chat(*, token: str | None = None, insecure: bool = True) -> None:
     """Open an interactive LiquidChat session.
 
     Connects with :class:`PersistentClient`, then runs a

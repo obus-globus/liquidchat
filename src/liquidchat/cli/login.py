@@ -121,7 +121,7 @@ async def _run_login(
 def login_cmd(
     *,
     allow_messages: bool = True,
-    insecure: bool = False,
+    insecure: bool = True,
     out: Path | None = None,
     print_token: bool = False,
 ) -> None:

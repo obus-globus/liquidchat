@@ -9,7 +9,7 @@ from liquidchat import Client
 from ._common import console, resolve_token
 
 
-def send(message: str, /, *, token: str | None = None, insecure: bool = False) -> None:
+def send(message: str, /, *, token: str | None = None, insecure: bool = True) -> None:
     """Send a single chat message and exit.
 
     The connection is opened, the message is sent, and the websocket is
