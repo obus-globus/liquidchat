@@ -290,7 +290,8 @@ v2 (Azure-AD GUID) client_ids honour `--flow {device-code, browser}`.
 Available aliases:
 
 - **v2 / Azure-AD GUID** (XboxLive.signin scope):
-  `prism` (default), `edu`, `office365`.
+  `prism` (default), `edu`, `office365`, `liquidlauncher`, `liquidbounce`
+  (the last two share Azure app `0add8caf-…`).
 - **v1 / Live-Connect compressed** (MBI_SSL scope):
   `java`, `bedrock-win32`, `bedrock-android`, `bedrock-ios`,
   `bedrock-nintendo`, `bedrock-playstation`, `xbox-app-ios`,
