@@ -51,7 +51,13 @@ _HELP = """\
 """
 
 
-async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float | None) -> None:
+async def _run_chat(
+    jwt: str | None,
+    *,
+    insecure_ssl: bool,
+    heartbeat_interval: float | None,
+    anonymous: bool,
+) -> None:
     loop = asyncio.get_running_loop()
     stop_event: asyncio.Event = asyncio.Event()
 
@@ -104,12 +110,19 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float |
         handlers=handlers,
         insecure_ssl=insecure_ssl,
         heartbeat_interval=heartbeat_interval,
+        anonymous=anonymous,
     ) as client:
-        try:
-            await client.wait_until_logged_in(timeout=15.0)
-        except TimeoutError:
-            err_console.print("[red]Login did not complete in 15s — exiting.[/red]")
-            return
+        if anonymous:
+            console.print(
+                "[yellow]anonymous read-only mode[/yellow] — incoming chat will be shown, "
+                "sending is disabled."
+            )
+        else:
+            try:
+                await client.wait_until_logged_in(timeout=15.0)
+            except TimeoutError:
+                err_console.print("[red]Login did not complete in 15s — exiting.[/red]")
+                return
 
         session: PromptSession[str] = PromptSession(
             HTML("<ansicyan><b>></b></ansicyan> "),
@@ -125,6 +138,11 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float |
                 return
             if line == "/help":
                 console.print(_HELP)
+                return
+            if anonymous and (
+                line == "/count" or line.startswith(("/ban ", "/unban ", "/pm ", "/refresh-jwt"))
+            ):
+                console.print("[yellow]not available in anonymous mode[/yellow]")
                 return
             if line == "/count":
                 await client.request_user_count()
@@ -191,6 +209,12 @@ async def _run_chat(jwt: str, *, insecure_ssl: bool, heartbeat_interval: float |
                 console.print(f"[yellow]unknown command {line.split()[0]!r} — try /help[/yellow]")
                 return
             # Plain chat message.
+            if anonymous:
+                console.print(
+                    "[yellow]anonymous mode — message not sent. Run [bold]liquidchat login[/bold] "
+                    "to enable sending.[/yellow]"
+                )
+                return
             await client.send_chat(line)
 
         async def _input_loop() -> None:
@@ -223,6 +247,7 @@ def chat(
     token: str | None = None,
     insecure: bool = True,
     heartbeat: float | None = None,
+    anonymous: bool = False,
 ) -> None:
     """Open an interactive LiquidChat session for a given profile.
 
@@ -231,6 +256,10 @@ def chat(
     ``$LIQUIDCHAT_ACCOUNT`` → the default profile from
     ``$LIQUIDCHAT_HOME/default``).
 
+    Pass ``--anonymous`` to open a **read-only** connection without
+    logging in: incoming public chat is shown, but sending and all
+    moderation commands are disabled. No profile / JWT is required.
+
     ``--insecure`` (default on) skips TLS verification — the public
     ``chat.liquidbounce.net`` cert has been expired for years. Pass
     ``--no-insecure`` against a private deployment with a valid cert.
@@ -238,11 +267,18 @@ def chat(
     ``--heartbeat <s>`` opt-in application-level keepalive (sends
     ``RequestMojangInfo`` every <s> seconds). Off by default.
     """
-    jwt = resolve_token(token, account)
+    jwt = None if anonymous else resolve_token(token, account)
     hb: float | None = heartbeat if heartbeat and heartbeat > 0 else None
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_run_chat(jwt, insecure_ssl=insecure, heartbeat_interval=hb))
+        asyncio.run(
+            _run_chat(
+                jwt,
+                insecure_ssl=insecure,
+                heartbeat_interval=hb,
+                anonymous=anonymous,
+            )
+        )
 
 
 __all__ = ["chat"]
