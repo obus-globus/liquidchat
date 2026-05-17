@@ -103,6 +103,7 @@ async def _run_login(
     flow: FlowName,
     client_id: str,
     bind_host: str | None,
+    bind_port: int | None,
     redirect_path: str | None,
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
@@ -125,11 +126,11 @@ async def _run_login(
                 f"[yellow]note:[/yellow] --flow {flow} is not supported for v1 "
                 f"client_id {client_id!r}; using browser-v1 instead."
             )
-        if bind_host is not None or redirect_path is not None:
+        if bind_host is not None or bind_port is not None or redirect_path is not None:
             console.print(
-                "[yellow]note:[/yellow] --bind-host / --redirect-path are "
-                "ignored for v1 client_ids (the OOB paste-back flow doesn't "
-                "use a local listener)."
+                "[yellow]note:[/yellow] --bind-host / --bind-port / "
+                "--redirect-path are ignored for v1 client_ids (the OOB "
+                "paste-back flow doesn't use a local listener)."
             )
         session = await login_via_browser_v1(
             client_id=client_id,
@@ -137,10 +138,11 @@ async def _run_login(
             open_browser=_announce_browser,
         )
     elif flow == "device-code":
-        if bind_host is not None or redirect_path is not None:
+        if bind_host is not None or bind_port is not None or redirect_path is not None:
             console.print(
-                "[yellow]note:[/yellow] --bind-host / --redirect-path are "
-                "ignored for --flow device-code (no local listener)."
+                "[yellow]note:[/yellow] --bind-host / --bind-port / "
+                "--redirect-path are ignored for --flow device-code "
+                "(no local listener)."
             )
         session = await login(client_id=client_id, on_device_code=_on_device_code, storage=storage)
     elif flow in ("browser", "browser-v1"):
@@ -163,12 +165,13 @@ async def _run_login(
             eff_bind_host = override[0]
         if eff_redirect_path is None and override is not None:
             eff_redirect_path = override[1]
-        if eff_bind_host is not None or eff_redirect_path is not None:
+        if eff_bind_host is not None or eff_redirect_path is not None or bind_port is not None:
             session = await login_via_browser(
                 client_id=client_id,
                 storage=storage,
                 open_browser=_announce_browser,
                 bind_host=eff_bind_host if eff_bind_host is not None else "127.0.0.1",
+                bind_port=bind_port if bind_port is not None else 0,
                 redirect_path=eff_redirect_path if eff_redirect_path is not None else "/callback",
             )
         else:
@@ -239,6 +242,7 @@ def login_cmd(
     flow: FlowName = "device-code",
     client_id: str = "prism",
     bind_host: str | None = None,
+    bind_port: int | None = None,
     redirect_path: str | None = None,
 ) -> None:
     """Sign in via Microsoft → Mojang → AxoChat and store creds per profile.
@@ -300,6 +304,10 @@ def login_cmd(
             (default: per-client from ``mcapi_auth.KNOWN_CLIENT_REDIRECTS``,
             then ``127.0.0.1``). Must match the Azure app's registered
             reply URI host.
+        bind_port: Override the local listener port for ``--flow browser``
+            (default: ``0`` — let the OS pick a free ephemeral port).
+            Pin this only if your Azure app registration requires an
+            exact port (rare; most accept ``http://host:*/path``).
         redirect_path: Override the local listener path for ``--flow
             browser`` (default: per-client, then ``/callback``). Must match
             the Azure app's registered reply URI path.
@@ -335,6 +343,7 @@ def login_cmd(
                 flow=flow,
                 client_id=resolved_client_id,
                 bind_host=bind_host,
+                bind_port=bind_port,
                 redirect_path=redirect_path,
             ),
         )

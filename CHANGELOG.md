@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --bind-port PORT`` flag. By default the local
+  listener uses port ``0`` (OS picks a free ephemeral port);
+  ``--bind-port`` lets you pin a specific one if your Azure app
+  registration requires an exact port. Ignored for ``--flow
+  device-code`` and v1 client_ids.
+
 ## [0.8.4] - 2026-05-17
 
 ### Added
