@@ -104,9 +104,10 @@ async def _run_login(
 ) -> tuple[str, str, str]:
     """Run the auth chain. Returns ``(jwt, username, uuid)``."""
     is_v1 = is_v1_client_id(client_id)
+    effective_flow: FlowName = "browser-v1" if is_v1 else flow
     console.print(
         f"[dim]running Microsoft → Minecraft auth "
-        f"(flow={flow}, client_id={client_id}, v1={is_v1})...[/dim]"
+        f"(flow={effective_flow}, client_id={client_id})...[/dim]"
     )
     storage = FileTokenStorage(path=refresh_storage_path) if refresh_storage_path else None
 
@@ -114,10 +115,12 @@ async def _run_login(
         # v1 client_ids only work against login.live.com/oauth20_*.srf
         # which doesn't support a device-code endpoint we talk to.
         # Force the OOB browser flow.
-        if flow == "device-code":
+        if flow != "device-code" and flow != "browser-v1":
+            # User explicitly passed --flow browser with a v1 client_id;
+            # the closest equivalent is browser-v1 (which we're using).
             console.print(
-                "[yellow]note:[/yellow] device-code is not supported for v1 "
-                f"client_id {client_id!r}; falling back to browser-v1."
+                f"[yellow]note:[/yellow] --flow {flow} is not supported for v1 "
+                f"client_id {client_id!r}; using browser-v1 instead."
             )
         session = await login_via_browser_v1(
             client_id=client_id,
