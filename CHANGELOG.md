@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-05-17
+
+### Added
+
+- ``liquidchat login --bind-host HOST`` and ``--redirect-path PATH``
+  CLI overrides for the ``--flow browser`` local listener. Use these
+  to match a non-standard reply URI registered on your own Azure-AD
+  app. When unset, the per-client default from
+  ``mcapi_auth.KNOWN_CLIENT_REDIRECTS`` is used; otherwise it falls
+  back to ``127.0.0.1`` / ``/callback``.
+- Both flags are ignored (with a note) for ``--flow device-code`` and
+  for v1 client_ids — neither uses a local listener.
+
 ## [0.8.3] - 2026-05-17
 
 ### Fixed
