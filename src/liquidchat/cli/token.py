@@ -1,10 +1,11 @@
-"""Token subcommands: inspect, validate, refresh."""
+"""Token subcommands: inspect, validate, refresh, path, clear."""
 
 from __future__ import annotations
 
 import asyncio
 import datetime as _dt
 import json
+from pathlib import Path
 
 from cyclopts import App
 from rich.panel import Panel
@@ -13,7 +14,7 @@ from rich.table import Table
 
 from liquidchat import Client, InvalidTokenError, decode_unverified_payload, inspect_token
 
-from ._common import console, err_console, resolve_token
+from ._common import console, err_console, resolve_token, token_file_path
 
 token_app: App = App(name="token", help="JWT inspection, validation, and rotation.")
 
@@ -121,6 +122,79 @@ def refresh(
     # goes to stderr so it doesn't pollute the captured output.
     err_console.print("[green]New JWT issued:[/green]")
     print(new)
+
+
+@token_app.command(name="path")
+def path() -> None:
+    """Print the on-disk locations used for credentials.
+
+    Shows both the liquidchat JWT file (resolved against
+    ``$LIQUIDCHAT_TOKEN_FILE`` with the standard XDG-config fallback)
+    and the mcapi-auth MSA refresh-token file (XDG-state). Each line
+    is prefixed with a one-word label so the output is easy to grep
+    or feed to other commands.
+    """
+    jwt_path = token_file_path()
+    jwt_status = "(exists)" if jwt_path.is_file() else "(missing)"
+    console.print(f"[bold cyan]jwt[/bold cyan]    {jwt_path}  [dim]{jwt_status}[/dim]")
+
+    try:
+        from mcapi_auth.auth.storage import default_storage_path
+    except ImportError:
+        return
+    rt_path = default_storage_path()
+    rt_status = "(exists)" if rt_path.is_file() else "(missing)"
+    console.print(f"[bold cyan]refresh[/bold cyan] {rt_path}  [dim]{rt_status}[/dim]")
+
+
+@token_app.command(name="clear")
+def clear(*, jwt_only: bool = False, refresh_only: bool = False, yes: bool = False) -> None:
+    """Delete the on-disk JWT (and optionally the MSA refresh token).
+
+    By default both files are removed. Pass ``--jwt-only`` to keep the
+    MSA refresh token (so the next ``liquidchat login`` won't need a
+    browser round-trip), or ``--refresh-only`` to keep the JWT.
+
+    Pass ``--yes`` to skip the confirmation prompt.
+    """
+    if jwt_only and refresh_only:
+        err_console.print("[red]--jwt-only and --refresh-only are mutually exclusive[/red]")
+        raise SystemExit(2)
+
+    targets: list[tuple[str, Path]] = []
+    if not refresh_only:
+        targets.append(("jwt", token_file_path()))
+    if not jwt_only:
+        try:
+            from mcapi_auth.auth.storage import default_storage_path
+
+            targets.append(("refresh", default_storage_path()))
+        except ImportError:
+            pass
+
+    existing = [(label, p) for label, p in targets if p.is_file()]
+    if not existing:
+        console.print("[dim]nothing to clear[/dim]")
+        return
+
+    for label, p in existing:
+        console.print(f"would remove [bold cyan]{label}[/bold cyan]: {p}")
+
+    if not yes:
+        try:
+            answer = input("proceed? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            console.print("[dim]aborted.[/dim]")
+            raise SystemExit(1)
+
+    for label, p in existing:
+        try:
+            p.unlink()
+            console.print(f"[green]removed[/green] {label}: {p}")
+        except OSError as e:
+            err_console.print(f"[red]failed to remove[/red] {label} ({p}): {e}")
 
 
 __all__ = ["token_app"]

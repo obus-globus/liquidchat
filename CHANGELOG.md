@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-05-17
+
+### Added
+
+- ``liquidchat token path`` — prints the on-disk locations of the
+  liquidchat JWT (``$LIQUIDCHAT_TOKEN_FILE`` or
+  ``~/.config/liquidchat/token``) and the mcapi-auth MSA refresh-
+  token store (``$XDG_STATE_HOME/mcapi_auth/refresh_token.json``,
+  default ``~/.local/state/mcapi_auth/refresh_token.json``), with
+  an exists/missing marker for each.
+- ``liquidchat token clear`` — removes both credential files (with a
+  confirmation prompt). ``--jwt-only`` keeps the MSA refresh token so
+  the next ``liquidchat login`` skips the browser step; ``--refresh-
+  only`` keeps the JWT; ``--yes`` skips the prompt.
+
 ## [0.4.6] - 2026-05-17
 
 ### Changed
