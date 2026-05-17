@@ -64,6 +64,14 @@ async def _run_login(
     allow_messages: bool,
     insecure: bool,
 ) -> str:
+    # Run the Microsoft → Minecraft auth chain BEFORE opening the
+    # websocket: device-code flow can take minutes (user has to walk
+    # to a browser) and chat.liquidbounce.net's keepalive will close
+    # an idle websocket long before the user finishes.
+    console.print("[dim]running Microsoft → Minecraft auth...[/dim]")
+    session = await login(on_device_code=_on_device_code)
+    console.print(f"[green]signed in as[/green] [bold]{session.username}[/bold] ({session.uuid})")
+
     ssl_ctx = build_ssl_context(insecure=insecure)
     async with websockets.connect(DEFAULT_WS_URL, ssl=ssl_ctx) as ws:
         console.print("[dim]requesting mojang challenge...[/dim]")
@@ -74,12 +82,6 @@ async def _run_login(
             raise ProtocolError(f"expected MojangInfo, got {msg!r}")
         server_id: str = body.session_hash
         console.print(f"[dim]session_hash = {server_id}[/dim]")
-
-        console.print("[dim]running Microsoft → Minecraft auth...[/dim]")
-        session = await login(on_device_code=_on_device_code)
-        console.print(
-            f"[green]signed in as[/green] [bold]{session.username}[/bold] ({session.uuid})"
-        )
 
         console.print("[dim]joining sessionserver...[/dim]")
         await join_server(

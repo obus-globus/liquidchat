@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-05-17
+
+### Fixed
+
+- `liquidchat login` no longer holds an idle websocket open during
+  the Microsoft device-code wait. Previously the chat server would
+  kill the connection with a keepalive ping-timeout while the user
+  was still completing browser auth, so the subsequent `LoginMojang`
+  frame went out on a corpse connection. Now we run the full MSA →
+  Mojang auth chain first, then open the websocket and run the
+  `RequestMojangInfo` → `joinServer` → `LoginMojang` → `RequestJWT`
+  exchange back-to-back.
+
 ## [0.4.2] - 2026-05-17
 
 ### Changed
