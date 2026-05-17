@@ -68,7 +68,7 @@ def info(
 
 
 @token_app.command(name="validate")
-def validate(*, token: str | None = None, strict: bool = False, insecure: bool = False) -> None:
+def validate(*, token: str | None = None, strict: bool = False, insecure: bool = True) -> None:
     """Open a one-shot websocket and ask the server to validate the JWT.
 
     By default a network failure is reported as "could not validate".
@@ -97,7 +97,7 @@ def refresh(
     *,
     token: str | None = None,
     timeout: float = 10.0,
-    insecure: bool = False,
+    insecure: bool = True,
 ) -> None:
     """Open a fresh connection, request a new JWT, print it to stdout.
 

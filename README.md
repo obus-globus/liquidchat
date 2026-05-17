@@ -241,10 +241,9 @@ explicitly the CLI looks in this order:
 
 > **Heads up:** the official `chat.liquidbounce.net` deployment has
 > been serving an expired TLS certificate since 2020. Every subcommand
-> that opens the chat websocket (`login`, `chat`, `send`,
-> `token validate`, `token refresh`, `ban`, `unban`) accepts
-> `--insecure` to skip cert verification. Use it against the public
-> server.
+> that opens the chat websocket defaults to **insecure mode** (no
+> TLS verification) so the public server works out of the box. Pass
+> `--no-insecure` against a deployment with a valid cert.
 
 So a typical setup is:
 

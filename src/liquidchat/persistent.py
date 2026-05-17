@@ -351,7 +351,10 @@ class PersistentClient:
             while self._enabled and attempt < self.reconnect.max_attempts:
                 try:
                     connect_kwargs: dict[str, Any] = dict(
-                        close_timeout=5, ping_interval=30, ping_timeout=10, proxy=None
+                        close_timeout=5,
+                        ping_interval=None,
+                        ping_timeout=None,
+                        proxy=None,
                     )
                     if self._url.startswith("wss://"):
                         connect_kwargs["ssl"] = build_ssl_context(insecure=self._insecure_ssl)
