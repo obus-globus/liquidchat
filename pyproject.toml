@@ -1,6 +1,6 @@
 [project]
 name = "liquidchat"
-version = "0.2.1"
+version = "0.3.0"
 description = "LiquidChat websocket client library (chat.liquidbounce.net)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,6 +24,16 @@ dependencies = [
     "pydantic>=2.8",
     "websockets>=16.0,<17.0",
 ]
+
+[project.optional-dependencies]
+cli = [
+    "cyclopts>=3",
+    "prompt_toolkit>=3.0.50",
+    "rich>=13",
+]
+
+[project.scripts]
+liquidchat = "liquidchat.cli:main"
 
 [project.urls]
 Repository = "https://github.com/clawdbot-silly-waddle/liquidchat"

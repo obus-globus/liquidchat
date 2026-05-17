@@ -22,6 +22,18 @@ uv sync          # or: pip install -e '.[dev]'
 
 Requires **Python 3.14+**.
 
+For the interactive CLI (`liquidchat chat`, `liquidchat token info`,
+…), install with the `cli` extra:
+
+```bash
+pip install 'liquidchat[cli]'         # adds cyclopts + prompt_toolkit + rich
+# or, in a uv project:
+uv add 'liquidchat[cli]'
+```
+
+The console script `liquidchat` is registered automatically. See
+[`## CLI`](#cli) below.
+
 ## Two clients
 
 - [`Client`](#client) — one-shot. Opens a fresh websocket, performs an operation
@@ -196,6 +208,83 @@ Offline checks: well-formedness (3 base64url segments), header `alg`
 present and not `none`, payload decodes to a JSON object containing
 `exp` (numeric) and `user.{name, uuid}` (non-empty strings), and the
 configurable `exp` clock check.
+
+## CLI
+
+The optional `liquidchat` console script (install with the `cli` extra)
+gives you a chat REPL plus the same operations the library exposes,
+straight from your shell. It uses **Cyclopts** for the command tree,
+**prompt_toolkit** for the bottom-anchored chat prompt, and **Rich**
+for pretty token output.
+
+```text
+$ liquidchat --help
+Usage: liquidchat COMMAND
+
+Commands:
+  ban       Ban a player by UUID or username.
+  chat      Open an interactive LiquidChat session.
+  mojang    Public Mojang profile lookups.
+  send      Send a single chat message and exit.
+  token     JWT inspection, validation, and rotation.
+  unban     Unban a player by UUID or username.
+```
+
+### Token resolution
+
+Every subcommand accepts `--token <jwt>`. If you don't pass one
+explicitly the CLI looks in this order:
+
+1. `LIQUIDCHAT_TOKEN` env var
+2. The file at `$LIQUIDCHAT_TOKEN_FILE` (default
+   `~/.config/liquidchat/token`)
+
+So a typical setup is:
+
+```bash
+mkdir -p ~/.config/liquidchat
+echo "eyJhbGc..." > ~/.config/liquidchat/token
+chmod 600 ~/.config/liquidchat/token
+liquidchat token info   # uses the file automatically
+```
+
+### Interactive chat
+
+```bash
+liquidchat chat
+```
+
+Opens a `PersistentClient`, prints inbound chat (with timestamps +
+colour) to the scrollback, and reads from a bottom-anchored prompt
+that survives reconnects and pretty-printed lifecycle events. Slash
+commands:
+
+| Command | Effect |
+| --- | --- |
+| `/help` | Show the in-session command list. |
+| `/quit`, `/exit`, `Ctrl-D` | Close the connection and exit. |
+| `/ban <user\|uuid>` | Ban — usernames are resolved via Mojang. |
+| `/unban <user\|uuid>` | Unban — same resolution. |
+| `/pm <user> <text>` | Send a private message (server-side support varies). |
+| `/count` | Request a user-count broadcast. |
+| `/whois <user>` | Look up a username in the local UUID cache. |
+| `/refresh-jwt` | Send `RequestJWT` and print the new token. |
+
+Anything that doesn't start with `/` is sent as a public chat message.
+
+### One-shot subcommands
+
+```bash
+liquidchat send "deploy went out, watching graphs"
+liquidchat token info             # pretty table: name / uuid / exp / status
+liquidchat token info --raw       # raw header + payload JSON
+liquidchat token validate         # round-trip with the server
+liquidchat token refresh > ~/.config/liquidchat/token   # rotate
+liquidchat ban CheaterMcCheatface
+liquidchat unban 069a79f444e94726a5befca90e38aaf5
+liquidchat mojang uuid Notch      # 069a79f4-44e9-4726-a5be-fca90e38aaf5
+liquidchat mojang name 069a79f4-44e9-4726-a5be-fca90e38aaf5
+```
 
 ## More examples
 

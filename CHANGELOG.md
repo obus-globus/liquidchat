@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-17
+
+### Added
+
+- **Interactive CLI** — `liquidchat` console script (install with the
+  optional `cli` extra: `pip install 'liquidchat[cli]'`). Subcommands:
+  - `liquidchat chat` — interactive REPL backed by
+    `PersistentClient`. `prompt_toolkit`'s `patch_stdout` keeps the
+    input line anchored to the bottom while inbound chat streams
+    above it. Slash-commands: `/help`, `/quit`, `/ban`, `/unban`,
+    `/pm`, `/count`, `/whois`, `/refresh-jwt`.
+  - `liquidchat send <message>` — one-shot chat send.
+  - `liquidchat token info` / `validate` / `refresh` — JWT
+    inspection (Rich table or raw JSON), round-trip validation,
+    `RequestJWT` rotation.
+  - `liquidchat ban` / `unban <user|uuid>` — one-shot moderation
+    with Mojang resolution.
+  - `liquidchat mojang uuid` / `name` — public profile lookups.
+- Token resolution order for every subcommand: `--token` flag →
+  `LIQUIDCHAT_TOKEN` env → `$LIQUIDCHAT_TOKEN_FILE` (default
+  `~/.config/liquidchat/token`).
+- New optional dependency group `cli`: `cyclopts>=3`,
+  `prompt_toolkit>=3.0.50`, `rich>=13`.
+
 ## [0.2.1] - 2026-05-17
 
 ### Added
