@@ -20,7 +20,7 @@ cd liquidchat
 uv sync          # or: pip install -e '.[dev]'
 ```
 
-Requires **Python 3.13+**.
+Requires **Python 3.14+**.
 
 ## Two clients
 
@@ -143,7 +143,7 @@ chat.
 
 For lookups beyond the cache (or in CLI/one-shot scripts), use the
 `liquidchat.mojang` helpers, which call Mojang's public profile API
-via `httpx`:
+via [`mcapi-auth`](https://github.com/clawdbot-silly-waddle/mcapi-auth):
 
 ```python
 from liquidchat.mojang import MojangClient, resolve_uuid, resolve_username
@@ -160,7 +160,9 @@ async with MojangClient() as mojang:
 
 Returns `None` on a clean "not found" (HTTP 404 / 204). Other HTTP
 failures raise `MojangHTTPError`; network errors propagate as
-`httpx.RequestError`.
+`httpx.RequestError`. For the full Mojang/Microsoft surface (auth chain,
+textures, blocked-servers, piston-meta, skin/cape management, …) reach
+into `mcapi-auth` directly — it's a runtime dependency.
 
 ## Token validation
 

@@ -3,8 +3,6 @@
 Run individual examples by editing the ``main()`` at the bottom.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from liquidchat import Client

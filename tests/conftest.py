@@ -1,7 +1,5 @@
 """Integration test fixtures: spin up a real axochat_server subprocess."""
 
-from __future__ import annotations
-
 import os
 import pathlib
 import secrets

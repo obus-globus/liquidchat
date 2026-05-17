@@ -7,8 +7,6 @@ inspect request payloads in custom ways; respx is the cleaner choice
 for "stub this URL, return this response" cases like these.
 """
 
-from __future__ import annotations
-
 import httpx
 import pytest
 import respx
@@ -62,18 +60,17 @@ async def test_lookup_by_uuid_with_respx(respx_mock: respx.Router) -> None:
 @respx.mock(base_url="https://api.mojang.com")
 async def test_server_error_surfaces_with_respx(respx_mock: respx.Router) -> None:
     respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(
-        return_value=httpx.Response(
-            500,
-            text="upstream went sideways",
-            headers={"x-minecraft-rate-limit-result": "UNDER_LIMIT"},
-        )
+        return_value=httpx.Response(500, text="upstream went sideways")
     )
     async with MojangClient() as mojang:
         with pytest.raises(MojangHTTPError) as excinfo:
             await mojang.lookup_by_name(NOTCH_NAME)
     assert excinfo.value.status_code == 500
     assert "upstream went sideways" in excinfo.value.body
-    assert excinfo.value.rate_limit_result == "UNDER_LIMIT"
+    # rate_limit_result is no longer surfaced (mcapi-auth doesn't expose
+    # the X-Minecraft-Rate-Limit-Result header); the attribute stays for
+    # back-compat but is always None.
+    assert excinfo.value.rate_limit_result is None
 
 
 @pytest.mark.asyncio
@@ -83,10 +80,7 @@ async def test_rate_limit_429_raises_dedicated_error(respx_mock: respx.Router) -
         return_value=httpx.Response(
             429,
             text="slow down",
-            headers={
-                "x-minecraft-rate-limit-result": "OVER_LIMIT",
-                "retry-after": "42",
-            },
+            headers={"retry-after": "42"},
         )
     )
     async with MojangClient() as mojang:
@@ -94,7 +88,6 @@ async def test_rate_limit_429_raises_dedicated_error(respx_mock: respx.Router) -
             await mojang.lookup_by_name(NOTCH_NAME)
     assert excinfo.value.status_code == 429
     assert excinfo.value.retry_after == 42.0
-    assert excinfo.value.rate_limit_result == "OVER_LIMIT"
     # MojangRateLimitError is still a MojangHTTPError, so generic
     # except clauses keep working.
     assert isinstance(excinfo.value, MojangHTTPError)
@@ -138,19 +131,20 @@ async def test_cache_disabled_via_constructor(respx_mock: respx.Router) -> None:
 
 @pytest.mark.asyncio
 @respx.mock(base_url="https://api.mojang.com")
-async def test_cache_skipped_on_no_store(respx_mock: respx.Router) -> None:
+async def test_cache_default_ttl_persists_between_calls(respx_mock: respx.Router) -> None:
+    """``Cache-Control`` is no longer honoured — the cache always uses
+    the library's default TTL, so back-to-back calls share a cache hit."""
     route = respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(
         return_value=httpx.Response(
             200,
             json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME},
-            headers={"cache-control": "no-store"},
+            headers={"cache-control": "no-store"},  # ignored by liquidchat
         )
     )
     async with MojangClient() as mojang:
         await mojang.lookup_by_name(NOTCH_NAME)
         await mojang.lookup_by_name(NOTCH_NAME)
-    # no-store → both requests hit the network.
-    assert route.call_count == 2
+    assert route.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -194,23 +188,26 @@ async def test_cache_actually_expires(respx_mock: respx.Router) -> None:
     """After TTL elapses, the next lookup must refetch."""
     import asyncio as _asyncio
 
+    from liquidchat import mojang as _mojang_mod
+
     route = respx_mock.get(f"/users/profiles/minecraft/{NOTCH_NAME}").mock(
-        return_value=httpx.Response(
-            200,
-            json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME},
-            headers={"cache-control": "max-age=1"},
-        )
+        return_value=httpx.Response(200, json={"id": NOTCH_UUID_PLAIN, "name": NOTCH_NAME})
     )
-    async with MojangClient() as mojang:
-        await mojang.lookup_by_name(NOTCH_NAME)
-        assert route.call_count == 1
-        # Cache hit while still inside TTL.
-        await mojang.lookup_by_name(NOTCH_NAME)
-        assert route.call_count == 1
-        await _asyncio.sleep(1.1)
-        # Now expired — must refetch.
-        await mojang.lookup_by_name(NOTCH_NAME)
-    assert route.call_count == 2
+    # Squash the default 300-second TTL to a value short enough that the
+    # test can actually observe expiry without a multi-minute sleep.
+    original_ttl = _mojang_mod.DEFAULT_PROFILE_TTL
+    _mojang_mod.DEFAULT_PROFILE_TTL = 1.0
+    try:
+        async with MojangClient() as mojang:
+            await mojang.lookup_by_name(NOTCH_NAME)
+            assert route.call_count == 1
+            await mojang.lookup_by_name(NOTCH_NAME)
+            assert route.call_count == 1
+            await _asyncio.sleep(1.1)
+            await mojang.lookup_by_name(NOTCH_NAME)
+        assert route.call_count == 2
+    finally:
+        _mojang_mod.DEFAULT_PROFILE_TTL = original_ttl
 
 
 @pytest.mark.asyncio

@@ -7,31 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-17
+
+### Changed (breaking)
+
+- **Bumped minimum Python to 3.14.** `liquidchat` now uses
+  `mcapi-auth >= 0.4` for its Mojang REST calls and that library is
+  3.14-only.
+- **`liquidchat.mojang` now delegates all HTTP work to `mcapi-auth`.**
+  Behaviour you should expect to differ:
+  - The `DEFAULT_PROFILE_URL` / `DEFAULT_SESSION_URL` module constants
+    and the `profile_url=` / `session_url=` constructor arguments on
+    `MojangClient` have been removed — endpoint selection lives in
+    `mcapi-auth` now.
+  - The `Cache-Control: max-age` header from Mojang is no longer
+    honoured. The in-process cache always uses the fixed
+    `DEFAULT_PROFILE_TTL` (300s) / `DEFAULT_SESSION_TTL` (20s).
+    `MAX_CACHE_TTL` and the `_cache_ttl_from_response` helper are gone.
+  - The `X-Minecraft-Rate-Limit-Result` header is no longer surfaced;
+    `MojangHTTPError.rate_limit_result` is kept for back-compat but is
+    always `None`.
+
 ### Added
 
+- New `mcapi-auth` dependency (sourced from
+  `github.com/clawdbot-silly-waddle/mcapi-auth` at tag `v0.4.0` for
+  now; will track PyPI once published). The full
+  Microsoft/Mojang auth chain and the wider REST surface
+  (`get_profile_by_uuid`, `extract_textures`, `fetch_blocked_servers`,
+  …) are available directly to callers via `import mcapi_auth`.
 - Mojang lookup cache is now **bounded** (`maxsize=10_000`, LRU
   eviction) — user-controlled cache keys can no longer grow memory
-  without limit. `MAX_CACHE_TTL` (7 days) caps any single entry's
-  lifetime even if upstream sends a wildly large `max-age` value.
+  without limit.
 - **Single-flight** request deduplication: N concurrent identical
   lookups (`lookup_by_name` / `lookup_by_uuid`) now share a single
   in-flight fetch. Both errors and successes are propagated to every
   waiter. Works independently of caching, so it helps on cold-start
   bursts even when `cache=False`.
-- `MojangClient` now caches successful profile lookups in-process,
-  honouring the upstream ``Cache-Control: max-age=N`` header (Mojang
-  returns 300s for name→UUID and 20s for UUID→profile). Falls back to
-  those defaults when the header is missing; respects ``no-store`` /
-  ``no-cache`` by skipping the cache entirely. Pass ``cache=False`` to
-  disable, or call ``await client.clear_cache()`` to reset.
+- `MojangClient` now caches successful profile lookups in-process.
+  Pass ``cache=False`` to disable, or call ``await client.clear_cache()``
+  to reset.
 - New `MojangRateLimitError` (subclass of `MojangHTTPError`) raised on
   HTTP 429. Surfaces `retry_after` (parsed from the standard
-  ``Retry-After`` header — Mojang doesn't currently send one, but the
-  hook is there) and `rate_limit_result` (from Mojang's bespoke
-  ``X-Minecraft-Rate-Limit-Result`` header).
-- `MojangHTTPError` gained a `rate_limit_result` attribute populated
-  for all error responses, useful for distinguishing "throttled by
-  Mojang" from "Mojang had a 500".
+  ``Retry-After`` header by ``mcapi-auth``).
 - Property-based tests via `hypothesis` (`tests/test_property.py`)
   covering `parse_message` and the JWT decoders. Asserts that arbitrary
   inputs only ever raise the documented `ProtocolError` /
@@ -51,19 +69,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Modernised for Python 3.13: `MessageHandler` / `PrivateMessageHandler`
-  / `UserCountHandler` / `ErrorHandler` / `LifecycleHandler` /
-  `ProgressCallback` are now PEP 695 `type` aliases. `Handlers` gained
-  `slots=True`. `ReconnectPolicy` and `_PendingAction` are now
-  `slots=True, frozen=True` — immutable as their usage intended.
+- Modernised for Python 3.13/3.14: `MessageHandler` /
+  `PrivateMessageHandler` / `UserCountHandler` / `ErrorHandler` /
+  `LifecycleHandler` / `ProgressCallback` are PEP 695 `type` aliases.
+  `Handlers` has `slots=True`. `ReconnectPolicy` and `_PendingAction`
+  are `slots=True, frozen=True` — immutable as their usage intended.
+- Dropped `from __future__ import annotations` everywhere (PEP 749
+  makes annotations lazy by default on 3.14).
 - `PersistentClient.wait_until_logged_in` rewritten on top of
   `asyncio.timeout()` and a flat task-cleanup pass, replacing the
   earlier `asyncio.wait(timeout=...)` + suppressed-await dance.
-- `MojangClient` now builds URLs via `httpx.URL.copy_with(path=...)`
-  instead of f-string concatenation + manual `urllib.parse.quote` +
-  `rstrip("/")` workaround. `profile_url` / `session_url` constructor
-  args accept `str | httpx.URL`. Percent-encoding and trailing-slash
-  handling are now httpx's problem.
+- `examples.py` reorganised into an `examples/` directory grouped by
+  theme (`basic.py`, `moderation.py`, `bot.py`, `mojang.py`) with an
+  index README documenting the ban/unban return-value contract.
 
 ### Fixed
 
@@ -81,12 +99,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MojangClient.lookup_by_name` / `lookup_by_uuid` wrap malformed 200
   responses (missing fields, wrong shape) in `MojangHTTPError`
   instead of leaking `KeyError`/`TypeError`.
-
-### Changed
-
-- `examples.py` reorganised into an `examples/` directory grouped by
-  theme (`basic.py`, `moderation.py`, `bot.py`, `mojang.py`) with an
-  index README documenting the ban/unban return-value contract.
 
 ### Documentation
 

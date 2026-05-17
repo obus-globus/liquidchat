@@ -5,8 +5,6 @@ populated from inbound messages, and dispatches events to registered
 :class:`Handlers` callbacks.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from liquidchat import AuthorInfo, Handlers, PersistentClient, ReconnectPolicy

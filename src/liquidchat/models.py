@@ -8,8 +8,6 @@ Some message types (``RequestMojangInfo``, ``RequestJWT``, ``RequestUserCount``)
 have no ``c`` body. :func:`parse_message` returns a tagged-union model.
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError

@@ -10,14 +10,14 @@ public profile API for the unseen-user case. It is intentionally
 separate from the chat client — no automatic calls are made by the
 ``PersistentClient`` itself; you opt in explicitly.
 
+Under the hood the HTTP work is delegated to ``mcapi-auth``; this
+module adds a small process-local TTL cache and single-flight dedup
+on top, both of which mcapi-auth deliberately leaves to the caller.
+
 Endpoints used (all unauthenticated, lightly rate-limited by Mojang):
 
 - ``GET https://api.mojang.com/users/profiles/minecraft/<name>``
-  → ``{"id": "<undashed-uuid>", "name": "<canonical-name>"}`` (HTTP 200)
-  → HTTP 404 when the name does not exist.
 - ``GET https://sessionserver.mojang.com/session/minecraft/profile/<uuid>``
-  → ``{"id": "...", "name": "...", "properties": [...]}`` (HTTP 200)
-  → HTTP 204 / 404 when the UUID does not exist.
 
 Quick start::
 
@@ -31,12 +31,7 @@ For repeated lookups, reuse a single client::
     async with MojangClient() as mojang:
         for name in names:
             print(await mojang.resolve_uuid(name))
-
-The module is opt-in: importing it pulls in :mod:`httpx`, which is
-listed under the ``mojang`` extra in ``pyproject.toml``.
 """
-
-from __future__ import annotations
 
 import asyncio
 import re
@@ -46,13 +41,29 @@ from types import TracebackType
 from typing import Final, Self
 
 import httpx
-from pydantic import BaseModel, ConfigDict, ValidationError
+from mcapi_auth import (
+    BadRequestError as _McBadRequest,
+)
+from mcapi_auth import (
+    HttpError as _McHttpError,
+)
+from mcapi_auth import (
+    NotFoundError as _McNotFound,
+)
+from mcapi_auth import (
+    RateLimitedError as _McRateLimited,
+)
+from mcapi_auth import (
+    get_profile_by_uuid as _mcapi_get_profile_by_uuid,
+)
+from mcapi_auth import (
+    get_uuid_by_name as _mcapi_get_uuid_by_name,
+)
+from pydantic import BaseModel, ConfigDict
 
 from .exceptions import LiquidChatError
 
 __all__ = [
-    "DEFAULT_PROFILE_URL",
-    "DEFAULT_SESSION_URL",
     "MojangClient",
     "MojangError",
     "MojangHTTPError",
@@ -64,14 +75,9 @@ __all__ = [
     "strip_uuid",
 ]
 
-DEFAULT_PROFILE_URL: Final = "https://api.mojang.com"
-DEFAULT_SESSION_URL: Final = "https://sessionserver.mojang.com"
 DEFAULT_PROFILE_TTL: Final = 300.0
 DEFAULT_SESSION_TTL: Final = 20.0
 DEFAULT_CACHE_MAXSIZE: Final = 10_000
-# Cap any single Cache-Control max-age at 7 days to avoid permanent
-# poisoning if an upstream/proxy ever returns a wildly large value.
-MAX_CACHE_TTL: Final = 7 * 24 * 60 * 60.0
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
 _UUID_HYPHEN_RE = re.compile(
@@ -79,35 +85,6 @@ _UUID_HYPHEN_RE = re.compile(
     re.IGNORECASE,
 )
 _UUID_PLAIN_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
-_MAX_AGE_RE = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
-
-
-def _cache_ttl_from_response(cache_control: str | None, default_ttl: float) -> float:
-    """Return the TTL to apply for a successful response.
-
-    Returns ``0`` when the response carries ``no-store`` / ``no-cache``
-    (caller should skip caching). Returns ``max-age`` when present
-    (capped at :data:`MAX_CACHE_TTL` to avoid permanent caching from
-    malformed upstream values), otherwise falls back to ``default_ttl``.
-    """
-    if cache_control:
-        cc = cache_control.lower()
-        if "no-store" in cc or "no-cache" in cc:
-            return 0.0
-        m = _MAX_AGE_RE.search(cache_control)
-        if m:
-            return min(float(m.group(1)), MAX_CACHE_TTL)
-    return default_ttl
-
-
-def _parse_retry_after(retry_after: str | None) -> float | None:
-    """Parse a ``Retry-After`` header. Returns seconds, or None on failure."""
-    if not retry_after:
-        return None
-    try:
-        return float(retry_after.strip())
-    except ValueError:
-        return None
 
 
 class MojangError(LiquidChatError):
@@ -117,10 +94,12 @@ class MojangError(LiquidChatError):
 class MojangHTTPError(MojangError):
     """Raised when Mojang returns an unexpected (non-404) HTTP status.
 
-    Mojang exposes its rate-limit verdict via the
-    ``X-Minecraft-Rate-Limit-Result`` header (e.g. ``UNDER_LIMIT`` /
-    ``OVER_LIMIT``). When present, it's surfaced on
-    :attr:`rate_limit_result` for easier triage.
+    .. note::
+
+       ``rate_limit_result`` (the ``X-Minecraft-Rate-Limit-Result``
+       header) is no longer populated since the actual HTTP work moved
+       into ``mcapi-auth``, which doesn't surface that header. The
+       attribute is kept for back-compat and is always ``None``.
     """
 
     def __init__(
@@ -156,6 +135,10 @@ class MojangRateLimitError(MojangHTTPError):
     ) -> None:
         super().__init__(429, url, body, rate_limit_result=rate_limit_result)
         self.retry_after = retry_after
+
+
+_NAME_LOOKUP_URL = "https://api.mojang.com/users/profiles/minecraft"
+_SESSION_LOOKUP_URL = "https://sessionserver.mojang.com/session/minecraft/profile"
 
 
 def strip_uuid(uuid: str) -> str:
@@ -236,6 +219,31 @@ class _TTLCache:
         return len(self._data)
 
 
+def _translate_mcapi_error(
+    exc: _McHttpError | _McRateLimited | _McBadRequest, fallback_url: str
+) -> MojangHTTPError:
+    """Map an mcapi-auth REST error onto the liquidchat exception tree.
+
+    ``mcapi_auth.NotFoundError`` is intentionally not handled here —
+    callers translate "no such account" into ``None`` directly.
+    """
+    if isinstance(exc, _McRateLimited):
+        return MojangRateLimitError(fallback_url, "", retry_after=exc.retry_after)
+    if isinstance(exc, _McBadRequest):
+        # mcapi-auth raises this for a syntactically-bad name as well;
+        # callers see a fully-formed HTTP error rather than a ValueError.
+        return MojangHTTPError(400, fallback_url, str(exc))
+    status = getattr(exc, "status_code", 0) or 0
+    body = getattr(exc, "body", "") or ""
+    url = getattr(exc, "url", None) or fallback_url
+    # mcapi-auth wraps a Pydantic ValidationError on a 2xx response in
+    # HttpError(status=200, body=raw); surface that as a malformed-body
+    # error so callers can distinguish it from a real server failure.
+    if 200 <= status < 300:
+        return MojangHTTPError(status, url, f"malformed response body: {body[:200]}")
+    return MojangHTTPError(status, url, body)
+
+
 class MojangClient:
     """Async wrapper around Mojang's public profile API.
 
@@ -251,25 +259,20 @@ class MojangClient:
     :class:`MojangHTTPError`. Network/timeout errors propagate as
     :class:`httpx.RequestError`.
 
-    By default, successful (200) responses are cached in-process,
-    honouring the upstream ``Cache-Control: max-age=N`` header.
-    Pass ``cache=False`` to disable, or call :meth:`clear_cache`
-    to reset. Caching is per-client — sharing one client across your
-    app maximises hit-rate.
+    Successful (200) responses are cached in-process with a fixed
+    default TTL. Pass ``cache=False`` to disable, or call
+    :meth:`clear_cache` to reset. Caching is per-client — sharing one
+    client across your app maximises hit-rate.
     """
 
     def __init__(
         self,
         *,
-        profile_url: str | httpx.URL = DEFAULT_PROFILE_URL,
-        session_url: str | httpx.URL = DEFAULT_SESSION_URL,
         timeout: float = 10.0,
         client: httpx.AsyncClient | None = None,
         user_agent: str = "liquidchat/0.1 (+https://github.com/sokripon/olotldiscordbotnew)",
         cache: bool = True,
     ) -> None:
-        self._profile_url = httpx.URL(profile_url)
-        self._session_url = httpx.URL(session_url)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=timeout,
@@ -306,18 +309,6 @@ class MojangClient:
             await self._name_cache.clear()
         if self._uuid_cache is not None:
             await self._uuid_cache.clear()
-
-    @staticmethod
-    def _raise_for_status(resp: httpx.Response, url: httpx.URL) -> None:
-        rate_limit_result = resp.headers.get("x-minecraft-rate-limit-result")
-        if resp.status_code == 429:
-            raise MojangRateLimitError(
-                url,
-                resp.text,
-                retry_after=_parse_retry_after(resp.headers.get("retry-after")),
-                rate_limit_result=rate_limit_result,
-            )
-        raise MojangHTTPError(resp.status_code, url, resp.text, rate_limit_result=rate_limit_result)
 
     async def resolve_uuid(self, username: str) -> str | None:
         """Return canonical hyphenated UUID for ``username``, or ``None``.
@@ -367,25 +358,15 @@ class MojangClient:
                 fut.cancel()
 
     async def _fetch_by_name(self, username: str, key: str) -> MojangProfile | None:
-        url = self._profile_url.copy_with(path=f"/users/profiles/minecraft/{username}")
-        resp = await self._client.get(url)
-        if resp.status_code in (204, 404):
-            return None
-        if resp.status_code != 200:
-            self._raise_for_status(resp, url)
         try:
-            data = resp.json()
-            profile = MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
-        except (KeyError, TypeError, ValueError, ValidationError) as e:
-            raise MojangHTTPError(
-                resp.status_code,
-                url,
-                f"malformed response: {e}",
-                rate_limit_result=resp.headers.get("x-minecraft-rate-limit-result"),
-            ) from e
+            lookup = await _mcapi_get_uuid_by_name(username, http_client=self._client)
+        except _McNotFound:
+            return None
+        except (_McRateLimited, _McBadRequest, _McHttpError) as e:
+            raise _translate_mcapi_error(e, f"{_NAME_LOOKUP_URL}/{username}") from e
+        profile = MojangProfile(uuid=format_uuid(lookup.uuid), name=lookup.name)
         if self._name_cache is not None:
-            ttl = _cache_ttl_from_response(resp.headers.get("cache-control"), DEFAULT_PROFILE_TTL)
-            await self._name_cache.set(key, profile, ttl)
+            await self._name_cache.set(key, profile, DEFAULT_PROFILE_TTL)
         return profile
 
     async def lookup_by_uuid(self, uuid: str) -> MojangProfile | None:
@@ -417,25 +398,15 @@ class MojangClient:
                 fut.cancel()
 
     async def _fetch_by_uuid(self, undashed: str) -> MojangProfile | None:
-        url = self._session_url.copy_with(path=f"/session/minecraft/profile/{undashed}")
-        resp = await self._client.get(url)
-        if resp.status_code in (204, 404):
-            return None
-        if resp.status_code != 200:
-            self._raise_for_status(resp, url)
         try:
-            data = resp.json()
-            profile = MojangProfile(uuid=format_uuid(data["id"]), name=data["name"])
-        except (KeyError, TypeError, ValueError, ValidationError) as e:
-            raise MojangHTTPError(
-                resp.status_code,
-                url,
-                f"malformed response: {e}",
-                rate_limit_result=resp.headers.get("x-minecraft-rate-limit-result"),
-            ) from e
+            public = await _mcapi_get_profile_by_uuid(undashed, http_client=self._client)
+        except _McNotFound:
+            return None
+        except (_McRateLimited, _McBadRequest, _McHttpError) as e:
+            raise _translate_mcapi_error(e, f"{_SESSION_LOOKUP_URL}/{undashed}") from e
+        profile = MojangProfile(uuid=format_uuid(public.uuid), name=public.name)
         if self._uuid_cache is not None:
-            ttl = _cache_ttl_from_response(resp.headers.get("cache-control"), DEFAULT_SESSION_TTL)
-            await self._uuid_cache.set(undashed, profile, ttl)
+            await self._uuid_cache.set(undashed, profile, DEFAULT_SESSION_TTL)
         return profile
 
 

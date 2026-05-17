@@ -1,13 +1,10 @@
-"""Direct unit tests for the in-process TTL/LRU cache + helper parsers.
+"""Direct unit tests for the in-process TTL/LRU cache.
 
-These poke at the private ``_TTLCache`` and ``_cache_ttl_from_response``
-because exercising LRU eviction and max-age capping end-to-end through
-``MojangClient`` would require synthesising thousands of distinct
-respx-routed responses. Keeping these here lets us assert the
-invariants directly.
+These poke at the private ``_TTLCache`` because exercising LRU
+eviction end-to-end through ``MojangClient`` would require synthesising
+thousands of distinct respx-routed responses. Keeping these here lets
+us assert the invariants directly.
 """
-
-from __future__ import annotations
 
 import asyncio
 import time
@@ -15,10 +12,7 @@ import time
 import pytest
 
 from liquidchat.mojang import (
-    DEFAULT_PROFILE_TTL,
-    MAX_CACHE_TTL,
     MojangProfile,
-    _cache_ttl_from_response,
     _TTLCache,
 )
 
@@ -27,30 +21,6 @@ NOTCH_DASHED = "069a79f4-44e9-4726-a5be-fca90e38aaf5"
 
 def _profile(name: str = "Notch") -> MojangProfile:
     return MojangProfile(uuid=NOTCH_DASHED, name=name)
-
-
-def test_cache_ttl_caps_huge_max_age() -> None:
-    """A malicious/misconfigured upstream can't pin entries forever."""
-    huge = _cache_ttl_from_response("max-age=99999999999999999999", DEFAULT_PROFILE_TTL)
-    assert huge == MAX_CACHE_TTL
-
-
-def test_cache_ttl_no_store_returns_zero() -> None:
-    assert _cache_ttl_from_response("no-store", DEFAULT_PROFILE_TTL) == 0.0
-    assert _cache_ttl_from_response("no-cache", DEFAULT_PROFILE_TTL) == 0.0
-    assert _cache_ttl_from_response("private, no-store, max-age=300", 99) == 0.0
-
-
-def test_cache_ttl_uses_max_age_with_other_directives() -> None:
-    assert _cache_ttl_from_response("public, max-age=120", 99) == 120.0
-    assert _cache_ttl_from_response("max-age=42, immutable", 99) == 42.0
-
-
-def test_cache_ttl_falls_back_when_missing_or_malformed() -> None:
-    assert _cache_ttl_from_response(None, 99) == 99.0
-    assert _cache_ttl_from_response("", 99) == 99.0
-    assert _cache_ttl_from_response("public", 99) == 99.0  # no max-age
-    assert _cache_ttl_from_response("max-age=not-a-number", 99) == 99.0
 
 
 @pytest.mark.asyncio

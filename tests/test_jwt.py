@@ -1,7 +1,5 @@
 """Unit tests for liquidchat.jwt (offline, no axochat or network)."""
 
-from __future__ import annotations
-
 import base64
 import json
 import time

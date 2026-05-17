@@ -1,7 +1,5 @@
 """Smoke tests for the wire protocol parser."""
 
-from __future__ import annotations
-
 import json
 
 import pytest
