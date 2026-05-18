@@ -35,9 +35,9 @@ from mcapi_auth import (
     is_browser_unsupported,
     is_v1_client_id,
     join_server,
-    login,
-    login_via_browser,
-    login_via_browser_v1,
+    login_browser_v1,
+    login_browser_v2,
+    login_device_code_v2,
     resolve_browser_redirect,
     resolve_client_id,
 )
@@ -136,7 +136,7 @@ async def _run_login(
                 "--redirect-path are ignored for v1 client_ids (the OOB "
                 "paste-back flow doesn't use a local listener)."
             )
-        session = await login_via_browser_v1(
+        session = await login_browser_v1(
             client_id=client_id,
             storage=storage,
             open_browser=_announce_browser,
@@ -151,7 +151,7 @@ async def _run_login(
                 "--redirect-path are ignored for --flow browser-v1 (OOB "
                 "paste-back flow doesn't use a local listener)."
             )
-        session = await login_via_browser_v1(
+        session = await login_browser_v1(
             client_id=client_id,
             storage=storage,
             open_browser=_announce_browser,
@@ -163,7 +163,9 @@ async def _run_login(
                 "--redirect-path are ignored for --flow device-code "
                 "(no local listener)."
             )
-        session = await login(client_id=client_id, on_device_code=_on_device_code, storage=storage)
+        session = await login_device_code_v2(
+            client_id=client_id, on_device_code=_on_device_code, storage=storage
+        )
     elif flow in ("browser", "browser-v1"):
         # v2 client_id + browser → PKCE+localhost flow.
         # browser-v1 with a v2 client_id is a contradiction; we silently
@@ -193,7 +195,7 @@ async def _run_login(
         if eff_redirect_path is None and override is not None:
             eff_redirect_path = override[1]
         if eff_bind_host is not None or eff_redirect_path is not None or bind_port is not None:
-            session = await login_via_browser(
+            session = await login_browser_v2(
                 client_id=client_id,
                 storage=storage,
                 open_browser=_announce_browser,
@@ -202,7 +204,7 @@ async def _run_login(
                 redirect_path=eff_redirect_path if eff_redirect_path is not None else "/callback",
             )
         else:
-            session = await login_via_browser(
+            session = await login_browser_v2(
                 client_id=client_id,
                 storage=storage,
                 open_browser=_announce_browser,
@@ -224,11 +226,7 @@ async def _run_login(
         console.print(f"[dim]session_hash = {server_id}[/dim]")
 
         console.print("[dim]joining sessionserver...[/dim]")
-        await join_server(
-            access_token=session.access_token,
-            uuid=session.uuid,
-            server_id=server_id,
-        )
+        await join_server(session, server_id=server_id)
 
         console.print("[dim]sending LoginMojang...[/dim]")
         await ws.send(
