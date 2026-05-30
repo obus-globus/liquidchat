@@ -20,7 +20,7 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "httpx>=0.27",
-    "mcapi-auth>=0.18.0",
+    "mcapi-auth>=0.19.3",
     "pydantic>=2.8",
     "websockets>=16.0,<17.0",
 ]
@@ -108,6 +108,3 @@ executionEnvironments = [
 ]
 # asyncio.create_task(...) returns we deliberately discard.
 reportUnusedCallResult = false
-
-[tool.uv.sources]
-mcapi-auth = { git = "https://github.com/obus-globus/mcapi-auth.git", tag = "v0.18.0" }

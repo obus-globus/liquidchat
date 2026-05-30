@@ -384,7 +384,7 @@ dev = [
 requires-dist = [
     { name = "cyclopts", marker = "extra == 'cli'", specifier = ">=3" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcapi-auth", git = "https://github.com/obus-globus/mcapi-auth.git?tag=v0.18.0" },
+    { name = "mcapi-auth", specifier = ">=0.19.3" },
     { name = "prompt-toolkit", marker = "extra == 'cli'", specifier = ">=3.0.50" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13" },
@@ -419,12 +419,16 @@ wheels = [
 
 [[package]]
 name = "mcapi-auth"
-version = "0.18.0"
-source = { git = "https://github.com/obus-globus/mcapi-auth.git?tag=v0.18.0#a6142e1d53ae8a206a9b8dacbb8de02d7a07d20f" }
+version = "0.19.3"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "whenever" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/17/3e80613505c46939f2c8e389ba22b778c691ec81396d11279ecf77db45f1/mcapi_auth-0.19.3.tar.gz", hash = "sha256:d66715668dfda5773abe41722bca839353092cfdb2755e4ef242eccc4847285d", size = 257846, upload-time = "2026-05-30T17:19:11.011Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/a6/d76357209585a1c589ee1c149dfa70d3d0be8ed2b67d0ba17e75ce978a37/mcapi_auth-0.19.3-py3-none-any.whl", hash = "sha256:7d28b684f2df9d8b914738fb08e9e0107c6b54506692a20e8c744609d96a2870", size = 130683, upload-time = "2026-05-30T17:19:09.484Z" },
 ]
 
 [[package]]
