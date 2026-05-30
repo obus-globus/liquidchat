@@ -23,7 +23,7 @@ jobs:
           enable-cache: true
 
       - name: Sync deps
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --all-extras
 
       - name: ruff (lint)
         run: uv run ruff check .

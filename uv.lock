@@ -384,7 +384,7 @@ dev = [
 requires-dist = [
     { name = "cyclopts", marker = "extra == 'cli'", specifier = ">=3" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcapi-auth", git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.18.0" },
+    { name = "mcapi-auth", git = "https://github.com/obus-globus/mcapi-auth.git?tag=v0.18.0" },
     { name = "prompt-toolkit", marker = "extra == 'cli'", specifier = ">=3.0.50" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13" },
@@ -420,7 +420,7 @@ wheels = [
 [[package]]
 name = "mcapi-auth"
 version = "0.18.0"
-source = { git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git?tag=v0.18.0#711ff7aa08f67c37223fe0b66388662acc29a046" }
+source = { git = "https://github.com/obus-globus/mcapi-auth.git?tag=v0.18.0#a6142e1d53ae8a206a9b8dacbb8de02d7a07d20f" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },

@@ -15,7 +15,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 authors = [
-    { name = "clawdbot-silly-waddle", email = "clawdbot-silly-waddle@users.noreply.github.com" }
+    { name = "obus-globus", email = "254700516+obus-globus@users.noreply.github.com" }
 ]
 requires-python = ">=3.14"
 dependencies = [
@@ -36,9 +36,9 @@ cli = [
 liquidchat = "liquidchat.cli:main"
 
 [project.urls]
-Repository = "https://github.com/clawdbot-silly-waddle/liquidchat"
-Issues = "https://github.com/clawdbot-silly-waddle/liquidchat/issues"
-Changelog = "https://github.com/clawdbot-silly-waddle/liquidchat/blob/master/CHANGELOG.md"
+Repository = "https://github.com/obus-globus/liquidchat"
+Issues = "https://github.com/obus-globus/liquidchat/issues"
+Changelog = "https://github.com/obus-globus/liquidchat/blob/master/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -89,6 +89,7 @@ exclude_lines = [
 
 [tool.deptry]
 extend_exclude = ["examples"]
+known_first_party = ["liquidchat"]
 
 [tool.basedpyright]
 include = ["src/liquidchat", "tests", "examples"]
@@ -109,4 +110,4 @@ executionEnvironments = [
 reportUnusedCallResult = false
 
 [tool.uv.sources]
-mcapi-auth = { git = "https://github.com/clawdbot-silly-waddle/mcapi-auth.git", tag = "v0.18.0" }
+mcapi-auth = { git = "https://github.com/obus-globus/mcapi-auth.git", tag = "v0.18.0" }
